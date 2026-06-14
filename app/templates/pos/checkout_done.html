@@ -1,0 +1,101 @@
+{% extends "pos/base.html" %}
+{% block title %}Sale complete{% endblock %}
+{% block content %}
+<div class="flex flex-col items-center px-4 pt-6 pb-10 space-y-5 max-w-sm mx-auto">
+
+  <!-- Status header -->
+  {% if oversell_conflict %}
+  <div class="w-20 h-20 rounded-full bg-rose-100 flex items-center justify-center shadow-lg anim-1">
+    <span class="text-4xl text-rose-500">⚠</span>
+  </div>
+  {% else %}
+  <div class="w-20 h-20 rounded-full bg-emerald-100 flex items-center justify-center shadow-lg anim-1">
+    <span class="text-4xl text-emerald-500">✓</span>
+  </div>
+  {% endif %}
+
+  <div class="text-center anim-2">
+    {% if oversell_conflict %}
+    <h1 class="text-2xl font-bold text-rose-600">Stock conflict — escalate</h1>
+    {% elif method == "cash" %}
+    <h1 class="text-2xl font-bold text-emerald-600">Cash sale complete</h1>
+    {% else %}
+    <h1 class="text-2xl font-bold text-emerald-600">Card sale complete</h1>
+    {% endif %}
+  </div>
+
+  {% if oversell_conflict %}
+  <div class="w-full bg-rose-50 border-2 border-rose-300 rounded-2xl px-4 py-4 text-sm text-rose-800 space-y-2 anim-2">
+    <p class="font-bold text-base">One or more items sold online before checkout completed.</p>
+    <p>The sale has been recorded and a conflict has been logged for manager review. {% if method == "card" %}The customer's card was charged — if any item cannot be fulfilled, process a refund for that item.{% else %}If any item cannot be fulfilled, issue a cash refund for that item.{% endif %}</p>
+    <p class="font-semibold">Check the <a href="/admin/sales/conflicts" class="underline">conflicts queue</a> to see which items are affected.</p>
+  </div>
+  {% endif %}
+
+  <!-- Receipt -->
+  {% if sale_lines %}
+  <div class="w-full bg-white rounded-2xl border border-sky-100 shadow-sm overflow-hidden anim-3">
+    <div class="bg-sky-50 px-4 py-2 text-xs font-bold text-sky-600 uppercase tracking-wide border-b border-sky-100">
+      Receipt
+    </div>
+    <table class="w-full text-sm">
+      <tbody class="divide-y divide-sky-50">
+        {% for sl in sale_lines %}
+        <tr>
+          <td class="px-4 py-3 text-slate-800 font-medium">{{ sl.title_at_sale }}</td>
+          <td class="px-4 py-3 text-slate-400 text-right tabular-nums w-8">×{{ sl.quantity_sold }}</td>
+          <td class="px-4 py-3 text-sky-700 font-bold text-right tabular-nums w-20">
+            ${{ "%.2f"|format(sl.unit_price * sl.quantity_sold) }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if sale %}
+    <div class="border-t border-sky-100 px-4 py-3 space-y-1 text-sm">
+      <div class="flex justify-between text-slate-500">
+        <span>Subtotal</span>
+        <span class="tabular-nums">${{ "%.2f"|format(sale.subtotal) }}</span>
+      </div>
+      {% if method == "cash" and sale.subtotal and sale.total %}
+      <div class="flex justify-between text-emerald-600">
+        <span>Cash discount (no tax)</span>
+        <span class="tabular-nums">−${{ "%.2f"|format(sale.subtotal - sale.total) }}</span>
+      </div>
+      {% endif %}
+      {% if method == "card" and sale.tax %}
+      <div class="flex justify-between text-slate-400">
+        <span>Tax</span>
+        <span class="tabular-nums">${{ "%.2f"|format(sale.tax) }}</span>
+      </div>
+      {% endif %}
+      {% if method == "card" and sale.card_surcharge %}
+      <div class="flex justify-between text-slate-400">
+        <span>Card fee</span>
+        <span class="tabular-nums">${{ "%.2f"|format(sale.card_surcharge) }}</span>
+      </div>
+      {% endif %}
+      <div class="flex justify-between text-xl font-black text-sky-700 pt-2 border-t border-sky-100 mt-2">
+        <span>Total {% if method == "card" %}charged{% else %}collected{% endif %}</span>
+        <span class="tabular-nums">${{ "%.2f"|format(sale.total) }}</span>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <!-- Actions -->
+  <div class="flex gap-3 w-full anim-4">
+    <a href="/pos/"
+       class="flex-1 text-center bg-sky-500 hover:bg-sky-600 text-white font-semibold py-4 rounded-2xl transition-all shadow-sm text-base">
+      ★ New sale
+    </a>
+    <a href="/admin/sales/"
+       class="flex-1 text-center bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 font-semibold py-4 rounded-2xl transition-all text-base">
+      Sales log
+    </a>
+  </div>
+
+</div>
+{% endblock %}

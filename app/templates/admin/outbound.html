@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Outbound queue{% endblock %}
+{% block content %}
+<div class="space-y-5">
+  <div class="flex items-baseline justify-between anim-1">
+    <h1 class="text-2xl font-bold tc-gradient-text">Outbound queue</h1>
+    <div class="flex gap-2 items-center flex-wrap">
+      <form method="get" class="flex gap-2 items-center">
+        <select name="state" class="px-3 py-1.5 border border-slate-200 rounded-full text-sm bg-white focus:outline-none focus:ring-2 focus:ring-sky-300">
+          <option value="all" {% if state=='all' %}selected{% endif %}>All</option>
+          <option value="pending" {% if state=='pending' %}selected{% endif %}>Pending</option>
+          <option value="done" {% if state=='done' %}selected{% endif %}>Done</option>
+          <option value="error" {% if state=='error' %}selected{% endif %}>Error</option>
+        </select>
+        <select name="channel" class="px-3 py-1.5 border border-slate-200 rounded-full text-sm bg-white focus:outline-none focus:ring-2 focus:ring-sky-300">
+          <option value="" {% if not channel %}selected{% endif %}>All channels</option>
+          <option value="ebay" {% if channel=='ebay' %}selected{% endif %}>eBay</option>
+          <option value="tcgplayer" {% if channel=='tcgplayer' %}selected{% endif %}>TCGPlayer</option>
+        </select>
+        <button class="bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold px-4 py-1.5 rounded-full transition-all">Filter</button>
+        {% if state != 'all' or channel %}
+        <a href="/admin/sync/outbound" class="text-sm text-slate-400 hover:text-slate-700 px-3 py-1.5">Reset</a>
+        {% endif %}
+      </form>
+      <button onclick="location.reload()"
+              class="text-sm px-3 py-1.5 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50 transition-all">↻ Refresh</button>
+      <form method="post" action="/admin/sync/outbound/retry_errors"
+            onsubmit="return confirm('Reset all errored rows for retry?')">
+        <input type="hidden" name="channel" value="{{ channel }}">
+        <button class="text-sm px-3 py-1.5 rounded-full border border-amber-200 text-amber-600 hover:bg-amber-50 transition-all">↺ Retry errors</button>
+      </form>
+      <form method="post" action="/admin/sync/outbound/clear_pending"
+            onsubmit="return confirm('Delete all pending outbound rows? This cannot be undone.')">
+        <input type="hidden" name="channel" value="{{ channel }}">
+        <button class="text-sm px-3 py-1.5 rounded-full border border-rose-200 text-rose-400 hover:bg-rose-50 transition-all">✕ Clear pending</button>
+      </form>
+    </div>
+  </div>
+
+  {% if not rows %}
+  <div class="bg-white rounded-2xl border border-sky-100 p-12 text-center anim-2">
+    <div class="text-5xl mb-3">✓</div>
+    <p class="text-slate-400">No outbound changes match the filter.</p>
+  </div>
+  {% else %}
+  <div class="bg-white rounded-2xl border border-sky-100 shadow-sm overflow-hidden anim-2">
+    <table class="w-full text-sm">
+      <thead class="tc-thead">
+        <tr><th>ID</th><th>Channel</th><th>Action</th><th>Unit</th><th>Attempts</th><th>Status</th><th>Enqueued</th></tr>
+      </thead>
+      <tbody class="divide-y divide-slate-50">
+        {% for row in rows %}
+        <tr class="hover:bg-sky-50 transition-colors">
+          <td class="px-3 py-2 font-mono text-xs text-slate-400">{{ row.id }}</td>
+          <td class="px-3 py-2">
+            <span class="text-xs font-semibold px-2 py-0.5 rounded-full
+              {% if row.channel=='ebay' %}bg-amber-100 text-amber-700
+              {% elif row.channel=='tcgplayer' %}bg-purple-100 text-purple-700
+              {% else %}bg-emerald-100 text-emerald-700{% endif %}">{{ row.channel }}</span>
+          </td>
+          <td class="px-3 py-2">
+            <span class="text-xs font-semibold px-2 py-0.5 rounded-full
+              {% if row.action=='create' %}bg-sky-100 text-sky-700
+              {% elif 'update' in row.action %}bg-blue-100 text-blue-700
+              {% else %}bg-slate-100 text-slate-600{% endif %}">{{ row.action }}</span>
+          </td>
+          <td class="px-3 py-2 font-mono text-xs text-slate-500">{{ row.inventory_unit_id or "—" }}</td>
+          <td class="px-3 py-2 text-center tabular-nums text-slate-500">{{ row.attempts }}</td>
+          <td class="px-3 py-2">
+            {% if row.completed_at %}<span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">done</span>
+            {% elif row.last_error %}<span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700" title="{{ row.last_error }}">error</span>
+            {% else %}<span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700">pending</span>{% endif %}
+          </td>
+          <td class="px-3 py-2 font-mono text-xs text-slate-400">{{ row.enqueued_at.strftime("%m/%d %H:%M") }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

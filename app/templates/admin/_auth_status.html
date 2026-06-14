@@ -1,0 +1,38 @@
+{#
+  Status pill rendered by GET /admin/sync/auth_status. The parent
+  page polls this partial every few seconds while a login flow is
+  active so the customer sees the state flip from disconnected →
+  snagging → connected without refreshing.
+
+  The outer wrapper has a stable id so HTMX swaps replace this and
+  the auto-poll trigger keeps firing.
+#}
+<div id="auth-status"
+     hx-get="/admin/sync/auth_status"
+     hx-trigger="every 5s"
+     hx-swap="outerHTML"
+     class="flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-sm
+       {% if state == 'connected' %}bg-emerald-50 border-emerald-200 text-emerald-800
+       {% elif state == 'snagging' %}bg-amber-50 border-amber-200 text-amber-800
+       {% else %}bg-rose-50 border-rose-200 text-rose-800{% endif %}">
+  <div class="flex items-center gap-2">
+    {% if state == 'connected' %}
+      <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+      <span class="font-semibold">Connected to TCGPlayer</span>
+      {% if snagged_now %}<span class="text-xs text-emerald-600">(just captured)</span>{% endif %}
+    {% elif state == 'snagging' %}
+      <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+      <span class="font-semibold">Capturing session…</span>
+    {% else %}
+      <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+      <span class="font-semibold">Not connected</span>
+    {% endif %}
+  </div>
+  <form method="post" action="/admin/sync/portal_login">
+    <button class="px-3 py-1.5 rounded-lg text-xs font-bold transition-all
+      {% if state == 'connected' %}bg-white border border-emerald-200 text-emerald-700 hover:bg-emerald-100
+      {% else %}bg-purple-500 hover:bg-purple-600 text-white shadow-sm{% endif %}">
+      {% if state == 'connected' %}Re-sign in{% else %}Sign in to TCGPlayer{% endif %}
+    </button>
+  </form>
+</div>

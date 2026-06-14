@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% block title %}Sold Online{% endblock %}
+{% block content %}
+<div class="space-y-6">
+
+  <div class="flex items-baseline justify-between anim-1">
+    <div>
+      <h1 class="text-2xl font-bold tc-gradient-text">Sold Online</h1>
+      <p class="text-sm text-slate-400 mt-0.5">Items flagged as sold on another channel — blocked from POS until resolved.</p>
+    </div>
+    {% if active %}
+    <span class="bg-rose-400 text-white text-sm font-bold px-3 py-1 rounded-full tc-badge-pulse">{{ active|length }} active</span>
+    {% endif %}
+  </div>
+
+  <!-- How this works -->
+  <div class="rounded-2xl bg-sky-50 border border-sky-200 px-4 py-3 text-sm text-sky-800 space-y-1 anim-1">
+    <p class="font-semibold">How it works</p>
+    <p>When a card sells on TCGPlayer or eBay before the CSV sync updates inventory, flag it here to prevent a double-sale at the register.
+       Flagged items show a <span class="font-bold text-rose-600">Sold Online</span> overlay in the POS and cannot be added to a cart.
+       Flags auto-expire at the end of the following calendar day — or dismiss manually once the inventory is reconciled.</p>
+    <p class="text-xs text-sky-600 mt-1">
+      Future: wire an email parser to <code class="font-mono bg-sky-100 px-1 rounded">POST /admin/sold-online/signal</code>
+      with <code class="font-mono bg-sky-100 px-1 rounded">card_name</code>, <code class="font-mono bg-sky-100 px-1 rounded">channel</code>, and <code class="font-mono bg-sky-100 px-1 rounded">order_id</code> fields.
+    </p>
+  </div>
+
+  <!-- Active flags -->
+  <section class="anim-2">
+    <h2 class="font-bold text-slate-700 mb-3">Active flags</h2>
+    {% if not active %}
+    <div class="bg-white rounded-2xl border border-sky-100 p-12 text-center">
+      <div class="text-5xl mb-3 opacity-30">✓</div>
+      <p class="text-slate-400">No items currently flagged as sold online.</p>
+    </div>
+    {% else %}
+    <div class="bg-white rounded-2xl border border-sky-100 shadow-sm overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="tc-thead">
+          <tr>
+            <th>Item</th>
+            <th>Condition</th>
+            <th>Qty on hand</th>
+            <th>Flagged at</th>
+            <th>Expires</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-50">
+          {% for unit in active %}
+          <tr class="hover:bg-rose-50 transition-colors">
+            <td class="px-3 py-3">
+              <p class="font-semibold text-slate-900">{{ unit.product.name }}</p>
+              <p class="text-xs text-slate-400">{{ unit.product.set or unit.product.supply_category or "" }}</p>
+            </td>
+            <td class="px-3 py-3 text-slate-500">{{ unit.condition or "—" }}</td>
+            <td class="px-3 py-3 tabular-nums text-slate-500">{{ unit.quantity_on_hand }}</td>
+            <td class="px-3 py-3 font-mono text-xs text-slate-400">
+              {{ unit.sold_online_at.strftime("%m/%d %I:%M %p") if unit.sold_online_at else "—" }}
+            </td>
+            <td class="px-3 py-3 font-mono text-xs text-amber-600">
+              {{ unit.sold_online_until.strftime("%m/%d %I:%M %p") if unit.sold_online_until else "—" }}
+            </td>
+            <td class="px-3 py-3 text-right">
+              <form method="post" action="/admin/sold-online/dismiss/{{ unit.id }}"
+                    onsubmit="return confirm('Dismiss flag for {{ unit.product.name }}? It will be sellable at POS immediately.')">
+                <button class="text-sm px-3 py-1.5 rounded-full border border-emerald-200 text-emerald-600 hover:bg-emerald-50 transition-all font-medium">
+                  ✓ Dismiss
+                </button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </section>
+
+  <!-- Manual flag -->
+  <section class="bg-white rounded-2xl border border-sky-100 shadow-sm p-5 space-y-4 anim-3">
+    <h2 class="font-bold text-slate-700">Flag an item manually</h2>
+    <p class="text-xs text-slate-400 -mt-2">Use this when you receive a sale notification and need to block the item immediately.</p>
+
+    <form method="get" action="/admin/sold-online/" class="flex gap-2">
+      <input type="text" name="q" value="{{ q }}"
+             placeholder="Search by card name or set…"
+             autofocus
+             class="flex-1 px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-sky-300 bg-white">
+      <button class="bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold px-4 py-2 rounded-xl transition-all">Search</button>
+      {% if q %}
+      <a href="/admin/sold-online/" class="px-3 py-2 text-slate-400 hover:text-slate-700 text-sm rounded-xl border border-slate-200 hover:bg-slate-50 transition-all">Clear</a>
+      {% endif %}
+    </form>
+
+    {% if q and not search_results %}
+    <div class="text-sm text-slate-400 py-3 text-center">No in-stock items matched "{{ q }}".</div>
+    {% endif %}
+
+    {% if search_results %}
+    <div class="overflow-x-auto rounded-xl border border-slate-100">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-400">
+          <tr>
+            <th class="px-3 py-2 text-left">Item</th>
+            <th class="px-3 py-2 text-left">Cond.</th>
+            <th class="px-3 py-2 text-right">Qty</th>
+            <th class="px-3 py-2 text-right">Price</th>
+            <th class="px-3 py-2"></th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-50">
+          {% for unit in search_results %}
+          <tr class="hover:bg-sky-50 transition-colors {% if unit.is_sold_online %}opacity-50{% endif %}">
+            <td class="px-3 py-2.5">
+              <p class="font-medium text-slate-900">{{ unit.product.name }}</p>
+              <p class="text-xs text-slate-400">{{ unit.product.set or "" }}</p>
+            </td>
+            <td class="px-3 py-2.5 text-slate-500">{{ unit.condition or "—" }}</td>
+            <td class="px-3 py-2.5 text-right tabular-nums text-slate-500">{{ unit.quantity_on_hand }}</td>
+            <td class="px-3 py-2.5 text-right tabular-nums text-sky-700 font-medium">
+              {% if unit.unit_price is not none %}${{ "%.2f"|format(unit.unit_price) }}{% else %}—{% endif %}
+            </td>
+            <td class="px-3 py-2.5 text-right">
+              {% if unit.is_sold_online %}
+              <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-rose-100 text-rose-600">Already flagged</span>
+              {% else %}
+              <form method="post" action="/admin/sold-online/flag/{{ unit.id }}">
+                <input type="hidden" name="source" value="manual">
+                <button class="text-sm px-3 py-1.5 rounded-full border border-rose-200 text-rose-500 hover:bg-rose-50 transition-all font-medium">
+                  Flag as sold
+                </button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </section>
+
+  <!-- History (last 7 days) -->
+  {% if history %}
+  <section class="anim-4">
+    <h2 class="font-bold text-slate-700 mb-3">Recent history <span class="text-slate-400 font-normal text-sm">(last 7 days)</span></h2>
+    <div class="bg-white rounded-2xl border border-sky-100 shadow-sm overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="tc-thead">
+          <tr>
+            <th>Item</th>
+            <th>Flagged at</th>
+            <th>Resolved</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-50">
+          {% for unit in history %}
+          <tr class="hover:bg-slate-50 transition-colors text-slate-400">
+            <td class="px-3 py-2.5">
+              <p class="font-medium text-slate-600">{{ unit.product.name }}</p>
+              <p class="text-xs">{{ unit.condition or "" }}</p>
+            </td>
+            <td class="px-3 py-2.5 font-mono text-xs">
+              {{ unit.sold_online_at.strftime("%m/%d %I:%M %p") if unit.sold_online_at else "—" }}
+            </td>
+            <td class="px-3 py-2.5 text-xs">
+              {% if not unit.sold_online_until %}
+              <span class="text-emerald-600 font-semibold">Dismissed</span>
+              {% else %}
+              <span class="text-slate-400">Auto-expired {{ unit.sold_online_until.strftime("%m/%d") }}</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+
+</div>
+{% endblock %}

@@ -1,0 +1,300 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<div class="max-w-xl space-y-6">
+
+  <div class="anim-1">
+    <h1 class="text-2xl font-bold tc-gradient-text">Settings</h1>
+    <p class="text-sm text-slate-500 mt-0.5">Runtime overrides — take effect immediately without restarting the server.</p>
+  </div>
+
+  {% if saved %}
+  <div class="bg-emerald-50 border border-emerald-200 rounded-2xl px-4 py-3 flex items-center gap-2 text-emerald-800 text-sm anim-1">
+    <span class="text-lg">✓</span> Settings saved.
+  </div>
+  {% endif %}
+  {% if error %}
+  <div class="bg-rose-50 border border-rose-200 rounded-2xl px-4 py-3 text-rose-700 text-sm anim-1">
+    Invalid value — please enter a number (e.g. 7 or 0.07).
+  </div>
+  {% endif %}
+
+  <!-- Network / tablet access -->
+  <div class="bg-white rounded-2xl border border-sky-100 shadow-sm p-5 space-y-4 anim-2">
+    <div class="flex items-center justify-between">
+      <div>
+        <h2 class="font-bold text-slate-700 text-base">Tablet access</h2>
+        <p class="text-xs text-slate-400 mt-0.5">Open port {{ port }} on the local network so a tablet can reach the POS.</p>
+      </div>
+      {% if firewall_open %}
+      <span class="flex items-center gap-1.5 text-emerald-700 text-sm font-semibold bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full">
+        <span class="w-2 h-2 rounded-full bg-emerald-500"></span> Firewall open
+      </span>
+      {% else %}
+      <span class="flex items-center gap-1.5 text-rose-700 text-sm font-semibold bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-full">
+        <span class="w-2 h-2 rounded-full bg-rose-500"></span> Port blocked
+      </span>
+      {% endif %}
+    </div>
+
+    {% if fw_status == 'ok' %}
+    <div class="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 text-emerald-800 text-sm">✓ Firewall rule added — tablet can now connect.</div>
+    {% elif fw_status == 'already_exists' %}
+    <div class="bg-sky-50 border border-sky-200 rounded-xl px-4 py-2.5 text-sky-800 text-sm">Rule already exists — nothing to do.</div>
+    {% elif fw_status == 'elevation_required' %}
+    <div class="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 text-amber-800 text-sm space-y-1">
+      <p class="font-semibold">⚠ Admin rights required.</p>
+      <p>Run this once in an elevated PowerShell (right-click → Run as Administrator):</p>
+      <code class="block mt-1 text-xs font-mono bg-white border border-amber-200 rounded-lg px-3 py-2 break-all select-all">
+        New-NetFirewallRule -DisplayName "{{ "TAG Inventory POS (port 8000)" }}" -Direction Inbound -Protocol TCP -LocalPort {{ port }} -Action Allow -Profile Private
+      </code>
+    </div>
+    {% endif %}
+
+    <div class="space-y-1.5">
+      <p class="text-xs text-slate-500 font-medium uppercase tracking-wide">This machine's IP address{{ "es" if local_ips|length > 1 }}</p>
+      {% for ip in local_ips %}
+      <div class="flex items-center justify-between bg-slate-50 rounded-xl px-4 py-2.5 border border-slate-100">
+        <span class="font-mono text-sm text-slate-700">http://{{ ip }}:{{ port }}/pos/</span>
+        <span class="text-xs text-slate-400">→ bookmark this on the tablet</span>
+      </div>
+      {% endfor %}
+    </div>
+
+    {% if not firewall_open %}
+    <form method="post" action="/admin/settings/network/firewall">
+      <button type="submit"
+              class="w-full py-2.5 rounded-full bg-sky-500 hover:bg-sky-600 text-white font-semibold text-sm transition-all shadow-sm">
+        Open firewall port {{ port }}
+      </button>
+    </form>
+    {% endif %}
+  </div>
+
+  <!-- Shopify credentials -->
+  <div class="bg-white rounded-2xl border border-sky-100 shadow-sm p-5 space-y-4 anim-2">
+    <div class="flex items-center justify-between">
+      <div>
+        <h2 class="font-bold text-slate-700 text-base">Shopify integration</h2>
+        <p class="text-xs text-slate-400 mt-0.5">Admin API credentials for product sync and POS order ingest.</p>
+      </div>
+      {% if shopify_status %}
+        {% if shopify_status.ok %}
+        <span class="flex items-center gap-1.5 text-emerald-700 text-sm font-semibold bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full shrink-0">
+          <span class="w-2 h-2 rounded-full bg-emerald-500"></span> Connected
+        </span>
+        {% else %}
+        <span class="flex items-center gap-1.5 text-rose-700 text-sm font-semibold bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-full shrink-0">
+          <span class="w-2 h-2 rounded-full bg-rose-500"></span> Not connected
+        </span>
+        {% endif %}
+      {% elif shopify.domain and shopify.token %}
+        <span class="flex items-center gap-1.5 text-slate-500 text-sm font-semibold bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-full shrink-0">
+          <span class="w-2 h-2 rounded-full bg-slate-400"></span> Untested
+        </span>
+      {% else %}
+        <span class="flex items-center gap-1.5 text-slate-400 text-sm font-semibold bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-full shrink-0">
+          Not configured
+        </span>
+      {% endif %}
+    </div>
+
+    {% if shopify_saved == '1' and shopify_status and shopify_status.ok %}
+    <div class="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 text-emerald-800 text-sm">
+      ✓ Connected to <strong>{{ shopify_status.shop_name }}</strong> ({{ shopify_status.plan }}).
+    </div>
+    {% endif %}
+    {% if shopify_status and not shopify_status.ok %}
+    <div class="bg-rose-50 border border-rose-200 rounded-xl px-4 py-2.5 text-rose-800 text-sm">
+      ⚠ {{ shopify_status.error }}
+    </div>
+    {% endif %}
+    {% if shopify_error %}
+    <div class="bg-rose-50 border border-rose-200 rounded-xl px-4 py-2.5 text-rose-800 text-sm">
+      ⚠ OAuth error: {{ shopify_error.replace('_', ' ') }}
+    </div>
+    {% endif %}
+
+    <!-- OAuth connect button -->
+    {% if shopify.api_key %}
+    <div class="flex items-center gap-3">
+      <form method="get" action="/auth/shopify/install" class="flex-1">
+        <input type="hidden" name="shop" value="{{ shopify.domain or '' }}">
+        {% if not shopify.domain %}
+        <p class="text-xs text-amber-600 mb-1">Enter store domain below before connecting.</p>
+        {% endif %}
+        <button type="submit" {% if not shopify.domain %}disabled{% endif %}
+                class="w-full py-2.5 rounded-full font-semibold text-sm transition-all shadow-sm
+                       {% if shopify.token %}bg-slate-100 text-slate-600 hover:bg-slate-200
+                       {% else %}bg-emerald-500 hover:bg-emerald-600 text-white{% endif %}">
+          {% if shopify.token %}Re-connect to Shopify{% else %}Connect to Shopify{% endif %}
+        </button>
+      </form>
+    </div>
+    {% endif %}
+
+    <form method="post" action="/admin/settings/shopify" class="space-y-3">
+      <div>
+        <label class="block text-xs uppercase tracking-widest text-slate-400 mb-1">Store domain</label>
+        <input name="shopify_shop_domain" type="text" value="{{ shopify.domain }}"
+               placeholder="yourstore.myshopify.com"
+               class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-sky-300 font-mono">
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs uppercase tracking-widest text-slate-400 mb-1">API key (Client ID)</label>
+          <input name="shopify_api_key" type="text" value="{{ shopify.api_key }}"
+                 placeholder="89f605…"
+                 autocomplete="off"
+                 class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-sky-300 font-mono">
+        </div>
+        <div>
+          <label class="block text-xs uppercase tracking-widest text-slate-400 mb-1">API secret</label>
+          <input name="shopify_api_secret" type="password"
+                 value=""
+                 placeholder="{{ '● stored — paste new value to replace' if shopify.api_secret_set else 'shpss_…' }}"
+                 autocomplete="off"
+                 class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-sky-300 font-mono">
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs uppercase tracking-widest text-slate-400 mb-1">Admin API access token</label>
+        {% if shopify.token %}
+        <div class="flex items-center gap-2 px-3 py-2 border border-slate-100 rounded-xl bg-emerald-50 text-emerald-700 text-sm font-mono">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+          Set via OAuth — managed automatically
+        </div>
+        <input type="hidden" name="shopify_admin_api_token" value="">
+        {% else %}
+        <input name="shopify_admin_api_token" type="password"
+               value=""
+               placeholder="Set automatically via Connect to Shopify"
+               autocomplete="off"
+               class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-sky-300 font-mono">
+        {% endif %}
+        <p class="text-xs text-slate-400 mt-1">Stored encrypted. Use the Connect button above to refresh.</p>
+      </div>
+
+      {% if shopify_status and shopify_status.ok and shopify_status.locations %}
+      <div>
+        <label class="block text-xs uppercase tracking-widest text-slate-400 mb-1">Store location</label>
+        <select name="shopify_location_id"
+                class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-sky-300">
+          {% for loc in shopify_status.locations %}
+          <option value="{{ loc.id }}" {% if loc.id == shopify.location_id %}selected{% endif %}>
+            {{ loc.name }} ({{ loc.id }})
+          </option>
+          {% endfor %}
+        </select>
+        <p class="text-xs text-slate-400 mt-1">Used for inventory level sync.</p>
+      </div>
+      {% elif shopify.location_id %}
+      <div>
+        <label class="block text-xs uppercase tracking-widest text-slate-400 mb-1">Location ID</label>
+        <input name="shopify_location_id" type="text" value="{{ shopify.location_id }}"
+               class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-sky-300 font-mono">
+      </div>
+      {% else %}
+      <input type="hidden" name="shopify_location_id" value="">
+      {% endif %}
+
+      <div class="flex gap-2 pt-1">
+        <button type="submit" onclick="clearMasked(this.form)"
+                class="flex-1 py-2.5 rounded-full bg-emerald-500 hover:bg-emerald-600 text-white font-semibold text-sm transition-all shadow-sm">
+          Save &amp; test connection
+        </button>
+        {% if shopify.domain and shopify.token %}
+        <form method="post" action="/admin/settings/shopify/test" class="shrink-0">
+          <button type="submit"
+                  class="px-4 py-2.5 rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50 font-semibold text-sm transition-all">
+            Test only
+          </button>
+        </form>
+        {% endif %}
+      </div>
+    </form>
+
+    {% if not shopify.token %}
+    <details class="border-t border-slate-100 pt-3">
+      <summary class="text-xs text-slate-400 cursor-pointer select-none">How to get your Admin API token</summary>
+      <ol class="mt-2 space-y-1 text-xs text-slate-500 list-decimal list-inside leading-relaxed">
+        <li>Go to <span class="font-mono">https://&lt;your-store&gt;.myshopify.com/admin/apps/development</span></li>
+        <li>Click <strong>Create an app</strong> and give it a name.</li>
+        <li>Click <strong>Configure Admin API scopes</strong> and enable:
+          <code class="text-[10px]">write_products, read_products, write_inventory, read_inventory, read_orders, read_locations</code>
+        </li>
+        <li>Click <strong>Save → Install app → Install</strong>.</li>
+        <li>Copy the <strong>Admin API access token</strong> (shown once only).</li>
+      </ol>
+    </details>
+    {% endif %}
+  </div>
+
+  <form method="post" action="/admin/settings/"
+        class="bg-white rounded-2xl border border-sky-100 shadow-sm p-5 space-y-5 anim-2">
+
+    <h2 class="font-bold text-slate-700 text-base">POS rates</h2>
+    <p class="text-xs text-slate-400 -mt-3">Enter as a percentage (e.g. <code>7</code>) or decimal (e.g. <code>0.07</code>).</p>
+
+    <div class="grid grid-cols-1 gap-4">
+
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4">
+        <div>
+          <label for="pos_tax_rate" class="block text-sm font-medium text-slate-700">Sales tax</label>
+          <p class="text-xs text-slate-400">Applied to every transaction.</p>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <input id="pos_tax_rate" name="pos_tax_rate" type="text" inputmode="decimal" required
+                 value="{{ '%.4g'|format(rates.pos_tax_rate * 100) }}"
+                 class="w-28 px-3 py-3 sm:py-2 border border-slate-200 rounded-xl text-sm text-right focus:outline-none focus:ring-2 focus:ring-sky-300 tabular-nums">
+          <span class="text-slate-400 text-sm">%</span>
+        </div>
+      </div>
+
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4 border-t border-sky-50 pt-4">
+        <div>
+          <label for="pos_card_surcharge" class="block text-sm font-medium text-slate-700">Credit card fee</label>
+          <p class="text-xs text-slate-400">Added on top of subtotal + tax for card payments.</p>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <input id="pos_card_surcharge" name="pos_card_surcharge" type="text" inputmode="decimal" required
+                 value="{{ '%.4g'|format(rates.pos_card_surcharge * 100) }}"
+                 class="w-28 px-3 py-3 sm:py-2 border border-slate-200 rounded-xl text-sm text-right focus:outline-none focus:ring-2 focus:ring-sky-300 tabular-nums">
+          <span class="text-slate-400 text-sm">%</span>
+        </div>
+      </div>
+
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4 border-t border-sky-50 pt-4">
+        <div>
+          <label for="pos_cash_discount" class="block text-sm font-medium text-slate-700">Cash discount</label>
+          <p class="text-xs text-slate-400">Deducted from subtotal for cash payments before tax.</p>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <input id="pos_cash_discount" name="pos_cash_discount" type="text" inputmode="decimal" required
+                 value="{{ '%.4g'|format(rates.pos_cash_discount * 100) }}"
+                 class="w-28 px-3 py-3 sm:py-2 border border-slate-200 rounded-xl text-sm text-right focus:outline-none focus:ring-2 focus:ring-sky-300 tabular-nums">
+          <span class="text-slate-400 text-sm">%</span>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="pt-1">
+      <button type="submit"
+              class="w-full bg-sky-500 hover:bg-sky-600 text-white font-semibold px-4 py-2.5 rounded-full transition-all shadow-sm text-sm">
+        Save settings
+      </button>
+    </div>
+
+  </form>
+
+</div>
+
+<script>
+function clearMasked(form) {
+  form.querySelectorAll('input[type="password"]').forEach(function(el) {
+    if (/^\*+$/.test(el.value)) el.value = '';
+  });
+}
+</script>
+{% endblock %}

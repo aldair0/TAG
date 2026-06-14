@@ -1,0 +1,113 @@
+/* TAG Collects — brand extras on top of Tailwind utilities.
+   Only things Tailwind can't express: keyframes, gradient text,
+   the logo pill, scrollbar, focus rings. Layout/color lives in HTML. */
+
+/* ---------- Page load stagger ---------- */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.anim-1 { animation: fadeUp .3s ease both .05s; }
+.anim-2 { animation: fadeUp .3s ease both .10s; }
+.anim-3 { animation: fadeUp .3s ease both .15s; }
+.anim-4 { animation: fadeUp .3s ease both .20s; }
+.anim-5 { animation: fadeUp .3s ease both .25s; }
+
+/* ---------- Gradient text ---------- */
+.tc-gradient-text {
+  background: linear-gradient(135deg, #0ea5e9, #f472b6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ---------- Logo pill ---------- */
+.tc-logo-pill {
+  background: rgba(255,255,255,.15);
+  border: 1.5px solid rgba(255,255,255,.35);
+  border-radius: 8px;
+  padding: 3px 10px;
+  letter-spacing: .12em;
+  color: #fff;
+  transition: background .15s ease;
+  font-size: .95rem;
+}
+.tc-logo-pill:hover { background: rgba(255,255,255,.28); }
+
+/* ---------- Card hover lift ---------- */
+.tc-card-hover {
+  transition: box-shadow .18s ease, transform .18s ease, border-color .18s ease;
+}
+.tc-card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px 0 rgba(14,165,233,.15);
+  border-color: #7dd3fc !important;
+}
+
+/* ---------- Pending pulse badge ---------- */
+@keyframes pulse-ring {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(244,114,182,.45); }
+  50%       { box-shadow: 0 0 0 5px rgba(244,114,182,0); }
+}
+.tc-badge-pulse { animation: pulse-ring 2s infinite; }
+
+/* ---------- Checkout glow ---------- */
+@keyframes checkout-glow {
+  0%, 100% { box-shadow: 0 4px 18px rgba(5,150,105,.35); }
+  50%       { box-shadow: 0 4px 28px rgba(5,150,105,.6); }
+}
+.tc-checkout-glow { animation: checkout-glow 2.5s infinite; }
+
+/* ---------- Slide-in row ---------- */
+@keyframes slideRow {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.tc-slide-row { animation: slideRow .2s ease both; }
+
+/* ---------- Button press ---------- */
+button:active, a.btn:active { transform: scale(.97); }
+
+/* ---------- Focus rings ---------- */
+:focus-visible { outline: 2.5px solid #38bdf8; outline-offset: 2px; }
+
+/* ---------- Scrollbar ---------- */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #f0f9ff; }
+::-webkit-scrollbar-thumb { background: #7dd3fc; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #0ea5e9; }
+
+/* ---------- Submit spinner ---------- */
+@keyframes spin { to { transform: rotate(360deg); } }
+button[data-loading]::after {
+  content: '';
+  display: inline-block;
+  width: .8em; height: .8em;
+  border: 2px solid rgba(255,255,255,.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin .65s linear infinite;
+  margin-left: .4em;
+  vertical-align: middle;
+}
+
+/* ---------- Image zoom on product card hover ---------- */
+.tc-img-zoom { transition: transform .3s ease; }
+.group:hover .tc-img-zoom { transform: scale(1.06); }
+
+/* ---------- Cart badge bump ---------- */
+@keyframes bump { 0%{transform:scale(1)} 40%{transform:scale(1.3)} 100%{transform:scale(1)} }
+.tc-bump { animation: bump .28s ease; }
+
+/* ---------- Table th brand tint ---------- */
+.tc-thead th {
+  background: #f0f9ff;
+  color: #0369a1;
+  font-size: .7rem;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  font-weight: 700;
+  padding: .55rem .875rem;
+}
+.tc-thead th:first-child { border-radius: 8px 0 0 0; }
+.tc-thead th:last-child  { border-radius: 0 8px 0 0; }

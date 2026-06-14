@@ -1,0 +1,60 @@
+# --- Secrets & local data ---
+.env
+.env.*
+!.env.example
+
+# Local DB files
+data/
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Sample/test fixtures: directory is committed but its own .gitignore allow-lists
+# specific files. Real PRO Seller exports stay untracked there.
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# --- PyInstaller ---
+build/
+dist/
+*.spec
+!tag_inventory.spec
+
+# --- IDE / editor ---
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# --- Logs ---
+*.log
+logs/
+
+# --- Claude Code local state ---
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+
+# Backup archives
+*.zip
+
+# --- Playwright / browser caches (Phase 1+) ---
+.playwright/
+playwright-browsers/

@@ -1,0 +1,172 @@
+{% extends "pos/base.html" %}
+{% block title %}Browse{% endblock %}
+{% block content %}
+<div class="space-y-4">
+
+  <!-- Search bar — no form submit needed, HTMX drives it -->
+  <div class="flex gap-2 anim-1">
+    <div class="relative flex-1">
+      <input
+        id="pos-search"
+        type="search"
+        name="q"
+        value="{{ q }}"
+        placeholder="Search cards, sealed, supplies…"
+        autocomplete="off"
+        autofocus
+        class="w-full px-4 py-3 pl-10 border border-sky-200 rounded-2xl text-base bg-white
+               focus:outline-none focus:ring-2 focus:ring-sky-400 shadow-sm"
+        hx-get="/pos/search"
+        hx-trigger="input delay:300ms, search"
+        hx-target="#product-grid"
+        hx-include="#kind-filter"
+        hx-indicator="#search-spinner"
+      />
+      <!-- magnifier icon -->
+      <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-sky-300 pointer-events-none"
+           fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+      </svg>
+      <!-- loading indicator -->
+      <span id="search-spinner"
+            class="htmx-indicator absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 border-2
+                   border-sky-200 border-t-sky-500 rounded-full animate-spin">
+      </span>
+    </div>
+
+    <select
+      id="kind-filter"
+      name="kind"
+      class="px-3 py-3 border border-sky-200 rounded-2xl text-base bg-white
+             focus:outline-none focus:ring-2 focus:ring-sky-400 shadow-sm"
+      hx-get="/pos/search"
+      hx-trigger="change"
+      hx-target="#product-grid"
+      hx-include="#pos-search"
+    >
+      <option value="" {% if not kind %}selected{% endif %}>All</option>
+      <option value="single"  {% if kind == 'single' %}selected{% endif %}>Singles</option>
+      <option value="sealed"  {% if kind == 'sealed' %}selected{% endif %}>Sealed</option>
+      <option value="supply"  {% if kind == 'supply' %}selected{% endif %}>Supplies</option>
+    </select>
+
+    {% if q or kind %}
+    <button
+      type="button"
+      class="bg-white border border-slate-200 text-slate-400 hover:text-slate-700 hover:bg-slate-50
+             font-semibold px-4 rounded-2xl flex items-center transition-all"
+      onclick="document.getElementById('pos-search').value='';
+               document.getElementById('kind-filter').value='';
+               document.getElementById('custom-item-panel').style.display='';
+               htmx.trigger('#pos-search','search');">
+      ✕
+    </button>
+    {% endif %}
+  </div>
+
+  <!-- Custom Item — touch keypad; hidden while search is active -->
+  <div id="custom-item-panel" class="bg-gradient-to-br from-purple-50 to-white rounded-2xl border-2 border-purple-200 shadow-sm p-4 anim-1">
+
+    <div class="flex items-center gap-2 mb-3">
+      <div class="w-9 h-9 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center text-lg font-bold shrink-0">$</div>
+      <p class="font-bold text-purple-800 text-base">Custom Item</p>
+    </div>
+
+    <!-- Price display -->
+    <div id="custom-display"
+         class="text-5xl font-black tabular-nums text-center text-purple-700 bg-white border-2 border-purple-200 rounded-2xl py-4 mb-3 tracking-tight">
+      $0.00
+    </div>
+
+    <!-- Keypad -->
+    <div class="grid grid-cols-3 gap-2 mb-3">
+      {% for key in ['7','8','9','4','5','6','1','2','3','.','0','⌫'] %}
+      <button type="button"
+              onclick="customKey('{{ key }}')"
+              class="h-16 rounded-2xl text-2xl font-bold transition-all active:scale-95
+                {% if key == '⌫' %}
+                  bg-rose-100 text-rose-600 hover:bg-rose-200
+                {% else %}
+                  bg-white border-2 border-purple-100 text-slate-800 hover:bg-purple-50
+                {% endif %}">
+        {{ key }}
+      </button>
+      {% endfor %}
+    </div>
+
+    <!-- Add button -->
+    <form method="post" action="/pos/cart/add_custom" id="custom-form">
+      <input type="hidden" name="price" id="custom-price-input" value="0">
+      <button type="button"
+              onclick="customAdd()"
+              class="w-full h-16 rounded-2xl bg-purple-500 hover:bg-purple-600 active:scale-95
+                     text-white text-xl font-bold transition-all shadow-sm" id="custom-add-btn">
+        Add to cart — $0.00
+      </button>
+    </form>
+    {% if custom_error == 'price' %}
+    <p class="text-sm text-rose-500 mt-2 text-center">Enter a price greater than $0.00</p>
+    {% endif %}
+  </div>
+
+  <!-- Grid — HTMX swaps innerHTML on search/filter changes; the
+       sentinel inside `_grid.html` swaps itself outerHTML on scroll. -->
+  <div id="product-grid"
+       class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 anim-2">
+    {% include "pos/_grid.html" %}
+  </div>
+
+</div>
+
+<style>
+  .htmx-indicator { display: none; }
+  .htmx-request .htmx-indicator,
+  .htmx-request.htmx-indicator { display: inline-block; }
+</style>
+
+<script>
+  // Hide custom item panel while the cashier is searching
+  (function () {
+    const search = document.getElementById('pos-search');
+    const panel  = document.getElementById('custom-item-panel');
+    if (!search || !panel) return;
+
+    function syncVisibility() {
+      panel.style.display = search.value.trim() ? 'none' : '';
+    }
+    search.addEventListener('input', syncVisibility);
+    search.addEventListener('search', syncVisibility);   // fires when X is tapped
+  })();
+
+  // Custom item keypad — stores value in cents to avoid float errors
+  let customCents = 0;
+
+  function customKey(k) {
+    if (k === '⌫') {
+      customCents = Math.floor(customCents / 10);
+    } else if (k === '.') {
+      // '.' is a no-op — entry is always in cents (last two digits are decimal)
+    } else {
+      const digit = parseInt(k, 10);
+      if (customCents < 100000) {          // cap at $1000.00
+        customCents = customCents * 10 + digit;
+      }
+    }
+    customRender();
+  }
+
+  function customRender() {
+    const dollars = (customCents / 100).toFixed(2);
+    document.getElementById('custom-display').textContent = '$' + dollars;
+    document.getElementById('custom-price-input').value = dollars;
+    document.getElementById('custom-add-btn').textContent = 'Add to cart — $' + dollars;
+  }
+
+  function customAdd() {
+    if (customCents <= 0) return;
+    document.getElementById('custom-form').submit();
+    customCents = 0;
+    customRender();
+  }
+</script>
+{% endblock %}

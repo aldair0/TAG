@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Inventory{% endblock %}
+{% block content %}
+<div class="space-y-5">
+
+  <div class="flex items-baseline justify-between anim-1">
+    <div>
+      <h1 class="text-2xl font-bold tc-gradient-text">Inventory</h1>
+      <p class="text-sm text-slate-500 mt-0.5">{{ total }} variant{{ "s" if total != 1 else "" }} · page {{ page }} of {{ pages }}</p>
+    </div>
+    <div class="relative flex items-center gap-2">
+      <input
+        id="inv-search"
+        type="search"
+        name="q"
+        value="{{ q }}"
+        placeholder="Search name or set…"
+        autocomplete="off"
+        class="px-3 py-1.5 pl-8 border border-slate-200 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-sky-300 bg-white w-56"
+        hx-get="/admin/inventory/search"
+        hx-trigger="input delay:300ms, search"
+        hx-target="#inventory-body"
+        hx-indicator="#inv-spinner"
+      />
+      <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-300 pointer-events-none"
+           fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+      </svg>
+      <span id="inv-spinner"
+            class="htmx-indicator absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 border-2
+                   border-slate-200 border-t-sky-400 rounded-full animate-spin pointer-events-none">
+      </span>
+      {% if q %}
+      <button type="button"
+              class="px-3 py-1.5 text-sm text-slate-400 hover:text-slate-700 rounded-full hover:bg-slate-100 transition-all"
+              onclick="document.getElementById('inv-search').value=''; htmx.trigger('#inv-search','search');">
+        Clear
+      </button>
+      {% endif %}
+    </div>
+  </div>
+
+  <div id="inventory-body" class="space-y-4 anim-2">
+    {% include "admin/_inventory_rows.html" %}
+  </div>
+
+</div>
+
+<style>
+  .htmx-indicator { display: none; }
+  .htmx-request .htmx-indicator,
+  .htmx-request.htmx-indicator { display: inline-block; }
+</style>
+{% endblock %}

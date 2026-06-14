@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Conflicts{% endblock %}
+{% block content %}
+<div class="space-y-5">
+  <div class="flex items-baseline justify-between anim-1">
+    <div>
+      <h1 class="text-2xl font-bold tc-gradient-text">Conflicts</h1>
+      <p class="text-sm text-slate-500 mt-0.5">
+        Open: <strong class="text-rose-500">{{ counts.get('open',0) }}</strong> ·
+        Resolved: <strong class="text-emerald-600">{{ counts.get('resolved',0) }}</strong> ·
+        Ignored: <strong class="text-slate-400">{{ counts.get('ignored',0) }}</strong>
+      </p>
+    </div>
+    <div class="flex gap-1">
+      <a href="?status=open" class="px-3 py-1.5 rounded-full text-sm font-semibold transition-all {% if status=='open' %}bg-rose-500 text-white{% else %}bg-white border border-slate-200 text-slate-500 hover:bg-slate-50{% endif %}">Open</a>
+      <a href="?status=resolved" class="px-3 py-1.5 rounded-full text-sm font-semibold transition-all {% if status=='resolved' %}bg-emerald-500 text-white{% else %}bg-white border border-slate-200 text-slate-500 hover:bg-slate-50{% endif %}">Resolved</a>
+      <a href="?status=" class="px-3 py-1.5 rounded-full text-sm font-semibold transition-all {% if not status %}bg-sky-500 text-white{% else %}bg-white border border-slate-200 text-slate-500 hover:bg-slate-50{% endif %}">All</a>
+    </div>
+  </div>
+
+  {% if not rows %}
+  <div class="bg-white rounded-2xl border border-sky-100 p-12 text-center anim-2">
+    <div class="text-5xl mb-3">✨</div>
+    <p class="text-slate-400">No conflicts {{ "open" if status=="open" else "matching the filter" }}.</p>
+  </div>
+  {% else %}
+  <div class="bg-white rounded-2xl border border-sky-100 shadow-sm overflow-hidden anim-2">
+    <table class="w-full text-sm">
+      <thead class="tc-thead">
+        <tr><th>When</th><th>Kind</th><th>Channel</th><th>Order</th><th>Summary</th><th>Status</th><th>Resolved by</th><th class="w-36"></th></tr>
+      </thead>
+      <tbody class="divide-y divide-slate-50">
+        {% for c in rows %}
+        <tr class="hover:bg-sky-50 transition-colors">
+          <td class="px-3 py-2.5 font-mono text-xs text-slate-400 whitespace-nowrap">{{ c.created_at.strftime("%m/%d %H:%M") }}</td>
+          <td class="px-3 py-2.5">
+            <span class="text-xs font-semibold px-2 py-0.5 rounded-full {% if c.kind=='oversell' %}bg-rose-100 text-rose-700{% elif c.kind=='listing_not_found' %}bg-amber-100 text-amber-700{% else %}bg-slate-100 text-slate-600{% endif %}">{{ c.kind }}</span>
+          </td>
+          <td class="px-3 py-2.5">
+            {% if c.channel %}<span class="text-xs font-semibold px-2 py-0.5 rounded-full {% if c.channel=='ebay' %}bg-amber-100 text-amber-700{% elif c.channel=='tcgplayer' %}bg-purple-100 text-purple-700{% else %}bg-emerald-100 text-emerald-700{% endif %}">{{ c.channel }}</span>{% else %}—{% endif %}
+          </td>
+          <td class="px-3 py-2.5 font-mono text-xs text-slate-400">{{ c.external_order_id or "—" }}</td>
+          <td class="px-3 py-2.5 text-slate-700 max-w-xs truncate text-sm" title="{{ c.summary }}">{{ c.summary }}</td>
+          <td class="px-3 py-2.5">
+            <span class="text-xs font-semibold px-2 py-0.5 rounded-full {% if c.status=='open' %}bg-rose-100 text-rose-700{% elif c.status=='resolved' %}bg-emerald-100 text-emerald-700{% else %}bg-slate-100 text-slate-500{% endif %}">{{ c.status }}</span>
+          </td>
+          <td class="px-3 py-2.5 text-xs text-slate-400">
+            {% if c.resolved_by %}{{ c.resolved_by }}{% elif c.resolved_at %}—{% else %}{% endif %}
+            {% if c.resolved_notes %}<span class="ml-1 text-slate-300" title="{{ c.resolved_notes }}">📝</span>{% endif %}
+          </td>
+          <td class="px-3 py-2.5">
+            {% if c.status == 'open' %}
+            <div class="flex gap-1">
+              <button onclick="document.getElementById('resolve-form-{{ c.id }}').classList.toggle('hidden')"
+                      class="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 hover:bg-emerald-200 font-semibold transition-all">
+                Resolve
+              </button>
+              <form method="post" action="/admin/sales/conflicts/{{ c.id }}/ignore">
+                <button type="submit"
+                        class="text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 font-semibold transition-all">
+                  Ignore
+                </button>
+              </form>
+            </div>
+            <form id="resolve-form-{{ c.id }}" method="post"
+                  action="/admin/sales/conflicts/{{ c.id }}/resolve"
+                  class="hidden mt-2 space-y-1">
+              <input name="resolved_by" type="text" placeholder="Your name"
+                     class="w-full px-2 py-1 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-sky-300">
+              <input name="resolved_notes" type="text" placeholder="Notes (optional)"
+                     class="w-full px-2 py-1 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-sky-300">
+              <button type="submit"
+                      class="w-full text-xs px-2 py-1 rounded-full bg-emerald-500 text-white hover:bg-emerald-600 font-semibold transition-all">
+                Confirm resolve
+              </button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

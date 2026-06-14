@@ -1,0 +1,7 @@
+# Real PRO Seller exports go here and stay out of git.
+# Synthetic fixtures used by tests are committed below via explicit allow-list.
+*
+!.gitignore
+!tcgplayer_fixture.csv
+!tcgplayer_fixture_v2.csv
+!README.md

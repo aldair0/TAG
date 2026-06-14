@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Sales{% endblock %}
+{% block content %}
+<div class="space-y-5">
+  <div class="flex items-baseline justify-between anim-1">
+    <div>
+      <h1 class="text-2xl font-bold tc-gradient-text">Sales</h1>
+      <p class="text-sm text-slate-500 mt-0.5">{{ total }} sale{{ "s" if total!=1 else "" }} · page {{ page }} of {{ pages }} · since {{ cutoff_date }}</p>
+    </div>
+    <div class="flex gap-2 items-center">
+      <form method="get" class="flex gap-2">
+        <select name="channel" class="px-3 py-1.5 border border-slate-200 rounded-full text-sm bg-white focus:outline-none focus:ring-2 focus:ring-sky-300">
+          <option value="">All channels</option>
+          <option value="ebay" {% if channel=='ebay' %}selected{% endif %}>eBay ({{ by_channel.get('ebay',0) }})</option>
+          <option value="tcgplayer" {% if channel=='tcgplayer' %}selected{% endif %}>TCGPlayer ({{ by_channel.get('tcgplayer',0) }})</option>
+          <option value="shopify_pos" {% if channel=='shopify_pos' %}selected{% endif %}>Shopify POS ({{ by_channel.get('shopify_pos',0) }})</option>
+        </select>
+        <button class="bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold px-4 py-1.5 rounded-full transition-all">Filter</button>
+      </form>
+      <a href="/admin/sales/export/sales.csv{% if channel %}?channel={{ channel }}{% endif %}"
+         class="text-sm text-slate-500 hover:text-sky-600 px-3 py-1.5 rounded-full border border-slate-200 hover:border-sky-300 transition-all whitespace-nowrap">
+        ↓ CSV
+      </a>
+    </div>
+  </div>
+
+  {% if not rows %}
+  <div class="bg-white rounded-2xl border border-sky-100 p-12 text-center anim-2">
+    <div class="text-5xl mb-3 opacity-40">🛒</div>
+    <p class="text-slate-400">No sales recorded yet matching the filter.</p>
+  </div>
+  {% else %}
+  <div class="bg-white rounded-2xl border border-sky-100 shadow-sm overflow-hidden anim-2">
+    <table class="w-full text-sm">
+      <thead class="tc-thead">
+        <tr><th>When</th><th>Channel</th><th>Order</th><th>Lines</th><th class="text-right">Total</th><th>Payment</th></tr>
+      </thead>
+      <tbody class="divide-y divide-slate-50">
+        {% for sale in rows %}
+        <tr class="hover:bg-sky-50 transition-colors align-top">
+          <td class="px-3 py-2.5 font-mono text-xs text-slate-400 whitespace-nowrap">{{ sale.occurred_at.strftime("%m/%d %H:%M") }}</td>
+          <td class="px-3 py-2.5">
+            <span class="text-xs font-semibold px-2 py-0.5 rounded-full
+              {% if sale.channel=='ebay' %}bg-amber-100 text-amber-700
+              {% elif sale.channel=='tcgplayer' %}bg-purple-100 text-purple-700
+              {% else %}bg-emerald-100 text-emerald-700{% endif %}">{{ sale.channel }}</span>
+          </td>
+          <td class="px-3 py-2.5 font-mono text-xs text-slate-400">{{ sale.external_order_id or "—" }}</td>
+          <td class="px-3 py-2.5">
+            <ul class="space-y-0.5 text-xs">
+              {% for line in sale.lines %}
+              <li><span class="font-semibold text-sky-600 tabular-nums">{{ line.quantity_sold }}×</span>
+                <span class="text-slate-700">{{ line.title_at_sale or ("unit#"~line.inventory_unit_id) }}</span>
+                {% if line.unit_price is not none %}<span class="text-slate-400"> @ ${{ "%.2f"|format(line.unit_price) }}</span>{% endif %}
+              </li>{% endfor %}
+            </ul>
+          </td>
+          <td class="px-3 py-2.5 text-right tabular-nums font-semibold text-sky-700">
+            {% if sale.total is not none %}${{ "%.2f"|format(sale.total) }}{% else %}—{% endif %}
+          </td>
+          <td class="px-3 py-2.5">
+            {% if sale.payment_method %}
+            <span class="text-xs font-semibold px-2 py-0.5 rounded-full {% if sale.payment_method=='card' %}bg-sky-100 text-sky-700{% else %}bg-emerald-100 text-emerald-700{% endif %}">{{ sale.payment_method }}</span>
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if pages > 1 %}
+  <div class="flex justify-between items-center text-sm anim-3">
+    <div>{% if page>1 %}<a href="?page={{ page-1 }}{% if channel %}&channel={{ channel }}{% endif %}" class="px-4 py-1.5 bg-white border border-sky-200 text-sky-600 rounded-full hover:bg-sky-50 transition-all">← Prev</a>{% endif %}</div>
+    <span class="text-slate-400">Page {{ page }} of {{ pages }}</span>
+    <div>{% if page<pages %}<a href="?page={{ page+1 }}{% if channel %}&channel={{ channel }}{% endif %}" class="px-4 py-1.5 bg-white border border-sky-200 text-sky-600 rounded-full hover:bg-sky-50 transition-all">Next →</a>{% endif %}</div>
+  </div>
+  {% endif %}
+  {% endif %}
+</div>
+{% endblock %}

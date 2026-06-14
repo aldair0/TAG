@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>{% block title %}{{ title or "POS" }}{% endblock %} · TAG Collects POS</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { theme: { extend: { colors: {
+      "sky-brand": "#0EA5E9", "pink-brand": "#F472B6"
+    }}}}
+  </script>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <link rel="stylesheet" href="/static/css/app.css">
+  <style> button, a { min-height: 44px; } </style>
+</head>
+<body class="bg-sky-50 text-slate-900 min-h-screen flex flex-col">
+
+  <header class="bg-gradient-to-r from-sky-500 to-sky-400 shadow-md sticky top-0 z-50">
+    <div class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+      <a href="/pos/" class="flex items-center gap-2 group">
+        <span class="tc-logo-pill">★ ★ ★</span>
+        <span class="text-pink-300 font-bold text-lg group-hover:text-pink-200 transition-colors">TAG Collects</span>
+        <span class="text-white/60 text-xs bg-white/15 rounded-full px-2 py-0.5 font-semibold">POS</span>
+      </a>
+      <nav class="flex items-center gap-2 text-sm">
+        <a href="/pos/" class="px-3 py-1.5 rounded-full text-white/80 hover:text-white hover:bg-white/20 transition-all flex items-center min-h-0">Browse</a>
+        <a href="/pos/cart" class="px-3 py-1.5 rounded-full text-white/80 hover:text-white hover:bg-white/20 transition-all flex items-center gap-1 min-h-0">
+          Cart
+          {% if cart_count and cart_count > 0 %}
+          <span class="bg-pink-400 text-white text-xs font-bold rounded-full px-2 py-0.5 tc-badge-pulse tc-bump">{{ cart_count }}</span>
+          {% endif %}
+        </a>
+        <a href="/admin/" class="px-2 py-1 text-white/50 text-xs hover:text-white/80 transition-colors min-h-0">← Admin</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="flex-1 max-w-5xl w-full mx-auto px-4 py-4">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="border-t-2 border-sky-100 bg-gradient-to-r from-white to-sky-50">
+    <div class="max-w-5xl mx-auto px-4 py-2 flex items-center justify-between text-xs text-slate-400">
+      <span class="text-sky-300 font-medium">★ ★ ★ TAG Collects POS</span>
+      <span>v{{ request.app.version }}</span>
+    </div>
+  </footer>
+  <script>
+    document.querySelectorAll('form').forEach(form => {
+      form.addEventListener('submit', () => {
+        const btn = form.querySelector('button[type="submit"], button:not([type])');
+        if (btn) {
+          btn.setAttribute('data-loading', '1');
+          btn.disabled = true;
+          setTimeout(() => { btn.disabled = false; btn.removeAttribute('data-loading'); }, 6000);
+        }
+      });
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>TAG Inventory — Data Flow Demo</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }
+
+  .sys-box rect { transition: fill 250ms ease, stroke 250ms ease; }
+  .sys-box.active rect { fill: #fef3c7; stroke: #d97706; stroke-width: 3; }
+  .sys-box.done rect { fill: #dcfce7; stroke: #16a34a; stroke-width: 2; }
+  .sys-box.dim rect { opacity: 0.45; }
+
+  .arrow path { transition: stroke 250ms, opacity 250ms; opacity: 0.18; }
+  .arrow text { opacity: 0.18; transition: opacity 250ms, fill 250ms; }
+  .arrow.active path {
+    stroke: #dc2626;
+    stroke-width: 3;
+    opacity: 1;
+    stroke-dasharray: 8 4;
+    animation: flow 0.8s linear infinite;
+  }
+  .arrow.active text { opacity: 1; fill: #dc2626; font-weight: 600; }
+  .arrow.shown path { opacity: 0.6; }
+  .arrow.shown text { opacity: 0.6; }
+
+  @keyframes flow { to { stroke-dashoffset: -24; } }
+
+  .scenario-tab.active { background-color: #2563eb; color: #fff; }
+  .scenario-tab { background-color: #e5e7eb; color: #1f2937; }
+
+  .step-pill { background: #fff7ed; border: 1px solid #fdba74; color: #9a3412; }
+
+  .pulse { animation: pulse 1.5s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+</style>
+</head>
+<body class="bg-slate-50 min-h-screen">
+<div class="max-w-6xl mx-auto p-6">
+
+  <header class="mb-6">
+    <h1 class="text-3xl font-bold text-slate-900">TAG Inventory — Data Flow Demo</h1>
+    <p class="text-slate-600 mt-2">Step through two end-to-end scenarios showing how a single card moves through TCGPlayer, the local DB, eBay, and Shopify POS.</p>
+  </header>
+
+  <div class="flex flex-wrap gap-2 mb-4">
+    <button class="scenario-tab active px-4 py-2 rounded-md font-medium" data-scenario="A">Scenario A — Sold on eBay</button>
+    <button class="scenario-tab px-4 py-2 rounded-md font-medium" data-scenario="B">Scenario B — Walk-in via Shopify POS</button>
+  </div>
+
+  <!-- DIAGRAM -->
+  <div class="bg-white rounded-lg shadow border p-4 mb-4">
+    <svg id="diagram" viewBox="0 0 1000 540" class="w-full h-auto" xmlns="http://www.w3.org/2000/svg">
+      <!-- arrowhead marker -->
+      <defs>
+        <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+          <polygon points="0 0, 10 3, 0 6" fill="#dc2626"/>
+        </marker>
+        <marker id="arrowhead-dim" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+          <polygon points="0 0, 10 3, 0 6" fill="#9ca3af"/>
+        </marker>
+      </defs>
+
+      <!-- BOXES -->
+      <g id="box-tcgplayer" class="sys-box" transform="translate(20,40)">
+        <rect width="200" height="80" rx="8" fill="#f3f4f6" stroke="#6b7280"/>
+        <text x="100" y="34" text-anchor="middle" font-size="16" font-weight="700" fill="#111827">TCGPlayer</text>
+        <text x="100" y="56" text-anchor="middle" font-size="11" fill="#4b5563">PRO Seller storefront</text>
+        <text x="100" y="70" text-anchor="middle" font-size="11" fill="#4b5563">(CSV download/upload)</text>
+      </g>
+
+      <g id="box-db" class="sys-box" transform="translate(400,210)">
+        <rect width="200" height="100" rx="8" fill="#f3f4f6" stroke="#6b7280"/>
+        <text x="100" y="34" text-anchor="middle" font-size="16" font-weight="700" fill="#111827">Local DB</text>
+        <text x="100" y="54" text-anchor="middle" font-size="11" fill="#4b5563">SQLite on shop PC</text>
+        <text x="100" y="70" text-anchor="middle" font-size="11" fill="#4b5563">products / inventory_units</text>
+        <text x="100" y="84" text-anchor="middle" font-size="11" fill="#4b5563">(source of truth)</text>
+      </g>
+
+      <g id="box-ebay" class="sys-box" transform="translate(780,40)">
+        <rect width="200" height="80" rx="8" fill="#f3f4f6" stroke="#6b7280"/>
+        <text x="100" y="34" text-anchor="middle" font-size="16" font-weight="700" fill="#111827">eBay</text>
+        <text x="100" y="56" text-anchor="middle" font-size="11" fill="#4b5563">Sell APIs (Inventory +</text>
+        <text x="100" y="70" text-anchor="middle" font-size="11" fill="#4b5563">Offer + Fulfillment)</text>
+      </g>
+
+      <g id="box-posui" class="sys-box" transform="translate(20,420)">
+        <rect width="200" height="80" rx="8" fill="#f3f4f6" stroke="#6b7280"/>
+        <text x="100" y="34" text-anchor="middle" font-size="16" font-weight="700" fill="#111827">Our POS UI</text>
+        <text x="100" y="56" text-anchor="middle" font-size="11" fill="#4b5563">tablet browser</text>
+        <text x="100" y="70" text-anchor="middle" font-size="11" fill="#4b5563">(cart for walk-ins)</text>
+      </g>
+
+      <g id="box-shopify" class="sys-box" transform="translate(780,420)">
+        <rect width="200" height="80" rx="8" fill="#f3f4f6" stroke="#6b7280"/>
+        <text x="100" y="34" text-anchor="middle" font-size="16" font-weight="700" fill="#111827">Shopify POS</text>
+        <text x="100" y="56" text-anchor="middle" font-size="11" fill="#4b5563">tablet app + card reader</text>
+        <text x="100" y="70" text-anchor="middle" font-size="11" fill="#4b5563">(Draft Orders + webhook)</text>
+      </g>
+
+      <!-- ARROWS -->
+      <!-- 1. TCGPlayer → DB (CSV ingest) -->
+      <g id="arr-tcg-to-db" class="arrow">
+        <path d="M 220 90 C 320 90, 350 230, 400 250" fill="none" stroke="#9ca3af" stroke-width="2" marker-end="url(#arrowhead-dim)"/>
+        <text x="295" y="155" font-size="11" fill="#374151">① CSV ingest</text>
+      </g>
+
+      <!-- 2. DB → TCGPlayer (CSV upload) -->
+      <g id="arr-db-to-tcg" class="arrow">
+        <path d="M 410 240 C 360 220, 320 110, 220 105" fill="none" stroke="#9ca3af" stroke-width="2" marker-end="url(#arrowhead-dim)"/>
+        <text x="225" y="200" font-size="11" fill="#374151">② CSV upload (qty)</text>
+      </g>
+
+      <!-- 3. DB → eBay (publish + qty update) -->
+      <g id="arr-db-to-ebay" class="arrow">
+        <path d="M 600 250 C 660 230, 700 110, 780 90" fill="none" stroke="#9ca3af" stroke-width="2" marker-end="url(#arrowhead-dim)"/>
+        <text x="660" y="155" font-size="11" fill="#374151">③ publish / qty push</text>
+      </g>
+
+      <!-- 4. eBay → DB (sale poll) -->
+      <g id="arr-ebay-to-db" class="arrow">
+        <path d="M 790 105 C 700 130, 660 230, 595 240" fill="none" stroke="#9ca3af" stroke-width="2" marker-end="url(#arrowhead-dim)"/>
+        <text x="700" y="200" font-size="11" fill="#374151">④ sale poll</text>
+      </g>
+
+      <!-- 5. DB → POS UI (browse stock) -->
+      <g id="arr-db-to-posui" class="arrow">
+        <path d="M 410 290 C 320 320, 280 410, 220 450" fill="none" stroke="#9ca3af" stroke-width="2" marker-end="url(#arrowhead-dim)"/>
+        <text x="220" y="370" font-size="11" fill="#374151">⑤ browse stock</text>
+      </g>
+
+      <!-- 6. POS UI → Shopify (Draft Order) -->
+      <g id="arr-posui-to-shopify" class="arrow">
+        <path d="M 220 460 L 780 460" fill="none" stroke="#9ca3af" stroke-width="2" marker-end="url(#arrowhead-dim)"/>
+        <text x="430" y="450" font-size="11" fill="#374151">⑥ Draft Order (cart total)</text>
+      </g>
+
+      <!-- 7. Shopify → DB (orders/create webhook) -->
+      <g id="arr-shopify-to-db" class="arrow">
+        <path d="M 880 420 C 760 380, 660 320, 595 305" fill="none" stroke="#9ca3af" stroke-width="2" marker-end="url(#arrowhead-dim)"/>
+        <text x="690" y="370" font-size="11" fill="#374151">⑦ orders/create webhook</text>
+      </g>
+
+      <!-- 8. DB → Shopify (publish product + quantity push) -->
+      <g id="arr-db-to-shopify" class="arrow">
+        <path d="M 605 295 C 680 320, 760 380, 870 415" fill="none" stroke="#9ca3af" stroke-width="2" marker-end="url(#arrowhead-dim)"/>
+        <text x="640" y="345" font-size="11" fill="#374151">⑧ publish + qty push</text>
+      </g>
+
+      <!-- Stage / customer indicator -->
+      <g id="customer-ebay" opacity="0">
+        <circle cx="880" cy="170" r="18" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+        <text x="880" y="174" text-anchor="middle" font-size="14">🛒</text>
+        <text x="880" y="200" text-anchor="middle" font-size="11" fill="#92400e">eBay buyer</text>
+      </g>
+      <g id="customer-walkin" opacity="0">
+        <circle cx="120" cy="370" r="18" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+        <text x="120" y="374" text-anchor="middle" font-size="14">🛍️</text>
+        <text x="120" y="400" text-anchor="middle" font-size="11" fill="#92400e">walk-in</text>
+      </g>
+    </svg>
+  </div>
+
+  <!-- STEP PANEL -->
+  <div class="bg-white rounded-lg shadow border p-5">
+    <div class="flex justify-between items-center mb-3">
+      <span id="step-counter" class="step-pill text-sm px-3 py-1 rounded-full font-medium">Step 1 of N</span>
+      <div class="flex gap-2">
+        <button id="btn-prev" class="px-3 py-1.5 border border-slate-300 rounded text-slate-700 hover:bg-slate-50 disabled:opacity-50">← Prev</button>
+        <button id="btn-play" class="px-3 py-1.5 border border-slate-300 rounded text-slate-700 hover:bg-slate-50">▶ Auto</button>
+        <button id="btn-next" class="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">Next →</button>
+        <button id="btn-reset" class="px-3 py-1.5 border border-slate-300 rounded text-slate-700 hover:bg-slate-50">Reset</button>
+      </div>
+    </div>
+    <h2 id="step-title" class="text-xl font-semibold text-slate-900 mb-2"></h2>
+    <p id="step-desc" class="text-slate-700 leading-relaxed"></p>
+    <div id="step-detail" class="mt-3 text-sm text-slate-500 font-mono whitespace-pre-line"></div>
+  </div>
+
+  <!-- LEGEND -->
+  <details class="mt-4 bg-white rounded-lg shadow border p-4">
+    <summary class="font-semibold text-slate-900 cursor-pointer">Legend &amp; notes</summary>
+    <ul class="mt-3 space-y-2 text-sm text-slate-700">
+      <li><span class="inline-block w-4 h-4 align-middle mr-2 rounded" style="background:#fef3c7;border:2px solid #d97706"></span><b>Active</b> — system is currently doing work in this step</li>
+      <li><span class="inline-block w-4 h-4 align-middle mr-2 rounded" style="background:#dcfce7;border:2px solid #16a34a"></span><b>Done</b> — system has completed its part for this scenario</li>
+      <li><span class="inline-block w-4 h-4 align-middle mr-2 rounded" style="background:#f3f4f6;border:2px solid #6b7280"></span><b>Idle</b> — system is not involved in this step</li>
+      <li>Animated red arrows show the data flowing in the current step. Faded labels show paths not active right now.</li>
+      <li><b>Note:</b> every product (cards, sealed, supplies) is published to Shopify as a POS-channel-only catalog product so the in-store inventory always reflects the DB. Cards/sealed live on all three channels (TCGPlayer + eBay + Shopify in-store); supplies are Shopify-only.</li>
+      <li><b>Why the new "publish + qty push" arrow:</b> this is the path that keeps the in-store cashier's inventory accurate. If a card sells on eBay, the next Shopify push removes it from the in-store catalog before the next walk-in customer can attempt to buy it.</li>
+    </ul>
+  </details>
+
+</div>
+
+<script>
+// ----- Scenario definitions -----
+// boxes:  tcgplayer | db | ebay | posui | shopify
+// arrows: tcg-to-db | db-to-tcg | db-to-ebay | ebay-to-db | db-to-posui | posui-to-shopify | shopify-to-db
+
+const SCENARIOS = {
+  A: [
+    {
+      title: "1. Staff lists a new card on TCGPlayer",
+      desc: "The owner enters a new card (e.g., Lightning Bolt — NM, $1.50) into the TCGPlayer PRO Seller storefront. TCGPlayer is the front door for product entry because its UI has the TCG database, condition picker, and image lookup built in.",
+      detail: "TCGPlayer storefront → seller listing created\n  product_id: 12345 (assigned by TCGPlayer)\n  qty: 1, condition: NM, price: $1.50",
+      active: ["tcgplayer"], done: [], arrows: [], shown: [], customer: null
+    },
+    {
+      title: "2. TCGPlayer Sync Worker downloads the seller CSV",
+      desc: "Every 3–5 minutes, our worker downloads the PRO Seller pricing CSV. It diffs the file against the local DB and detects the new TCGplayer ID. A new product row is inserted; the image is fetched from the TCGPlayer CDN.",
+      detail: "GET PRO Seller CSV → diff vs DB → new TCGplayer ID 12345 detected\nINSERT product (kind=single, name='Lightning Bolt', set='M11', image_url=...)\nINSERT inventory_unit (product_id=…, condition='NM', qty=1, price=1.50)\nINSERT channel_listing (channel='tcgplayer', listing_id=12345)\nENQUEUE outbound_change → eBay\nENQUEUE outbound_change → Shopify",
+      active: ["tcgplayer", "db"], done: [], arrows: ["arr-tcg-to-db"], shown: [], customer: null
+    },
+    {
+      title: "3. eBay Sync Worker publishes the listing to eBay",
+      desc: "On insert, the new inventory_unit is enqueued for eBay. The eBay worker creates an inventory_item, an offer, and publishes it. The card is now live on eBay.",
+      detail: "POST /sell/inventory/v1/inventory_item/{sku}\nPOST /sell/inventory/v1/offer\nPOST /sell/inventory/v1/offer/{id}/publish\n→ eBay listing created\nINSERT channel_listing (channel='ebay', listing_id='v1|...|...')",
+      active: ["db", "ebay"], done: ["tcgplayer"], arrows: ["arr-db-to-ebay"], shown: ["arr-tcg-to-db"], customer: null
+    },
+    {
+      title: "4. Shopify Sync Worker publishes the card to the in-store catalog",
+      desc: "The Shopify worker drains its queue and creates a Shopify Product (POS sales channel only) so the card is mirrored in the in-store inventory. The cashier can now see it both in our POS UI and in the Shopify POS app's native browse.",
+      detail: "POST /admin/api/2025-01/products.json\n  title='Lightning Bolt (NM, M11)', body_html=description, image, price=1.50, inventory_quantity=1\nGraphQL publishablePublish → POS publication only\nUPDATE product SET shopify_product_id=…, shopify_variant_id=…\nINSERT channel_listing (channel='shopify_pos', last_pushed_quantity=1)",
+      active: ["db", "shopify"], done: ["tcgplayer", "ebay"], arrows: ["arr-db-to-shopify"], shown: ["arr-tcg-to-db", "arr-db-to-ebay"], customer: null
+    },
+    {
+      title: "5. Card is now for sale on TCGPlayer + eBay + Shopify in-store",
+      desc: "The card is listed across all three channels. The DB is the source of truth: each channel has its own channel_listing row tracking last-pushed quantity and price. Time passes…",
+      detail: "channel_listing[tcgplayer] = qty 1\nchannel_listing[ebay] = qty 1\nchannel_listing[shopify_pos] = qty 1\nDB inventory_unit.quantity_on_hand = 1",
+      active: [], done: ["tcgplayer", "db", "ebay", "shopify"], arrows: [], shown: ["arr-tcg-to-db", "arr-db-to-ebay", "arr-db-to-shopify"], customer: null
+    },
+    {
+      title: "6. An eBay buyer purchases the card",
+      desc: "A buyer on eBay clicks Buy It Now. The transaction completes inside eBay's checkout — our system doesn't know yet.",
+      detail: "(eBay-side event, not yet observed by our DB)",
+      active: ["ebay"], done: ["tcgplayer", "db", "shopify"], arrows: [], shown: ["arr-tcg-to-db", "arr-db-to-ebay", "arr-db-to-shopify"], customer: "ebay"
+    },
+    {
+      title: "7. Sales poll detects the new eBay order → DB decrements",
+      desc: "Our eBay Sync Worker polls the Fulfillment API every 2–5 minutes. It finds the new order, matches the SKU to our inventory_unit, atomically decrements, records a sale, and queues outbound updates for BOTH TCGPlayer and Shopify so the in-store cashier can't accidentally sell something already gone.",
+      detail: "GET /sell/fulfillment/v1/order?filter=creationdate:[…]\n→ new order found, sku matches inventory_unit.id\nUPDATE inventory_unit SET quantity_on_hand = quantity_on_hand - 1\n  WHERE id=… AND quantity_on_hand >= 1   -- atomic\nINSERT sale (channel='ebay', order_id=…)\nENQUEUE outbound_change → TCGPlayer (new_qty=0)\nENQUEUE outbound_change → Shopify   (new_qty=0)",
+      active: ["ebay", "db"], done: ["tcgplayer", "shopify"], arrows: ["arr-ebay-to-db"], shown: ["arr-tcg-to-db", "arr-db-to-ebay", "arr-db-to-shopify"], customer: "ebay"
+    },
+    {
+      title: "8. Shopify in-store inventory is updated (qty → 0)",
+      desc: "The Shopify Sync Worker drains the queue ~60s later and pushes the new quantity to Shopify. The card disappears from the in-store cashier's view immediately, before the next walk-in customer can attempt to ring it up.",
+      detail: "GraphQL inventoryItemAdjustQuantity\n  inventoryItemId=…, locationId=…, availableDelta=-1\n→ Shopify variant inventory_quantity = 0\nUPDATE channel_listing[shopify_pos] SET last_pushed_quantity = 0",
+      active: ["db", "shopify"], done: ["tcgplayer", "ebay"], arrows: ["arr-db-to-shopify"], shown: ["arr-tcg-to-db", "arr-db-to-ebay", "arr-ebay-to-db"], customer: "ebay"
+    },
+    {
+      title: "9. TCGPlayer marketplace is updated via CSV upload",
+      desc: "On its next outbound batch, the TCGPlayer Sync Worker uploads a CSV that sets the card's quantity to 0, removing it from TCGPlayer. The eBay listing is already gone (the buyer ended it).",
+      detail: "POST PRO Seller bulk uploader → row {tcgplayer_id:12345, qty:0}\nUPDATE channel_listing[tcgplayer] SET last_pushed_quantity = 0\n(eBay listing already at 0 from the buyer's purchase)",
+      active: ["db", "tcgplayer"], done: ["ebay", "shopify"], arrows: ["arr-db-to-tcg"], shown: ["arr-tcg-to-db", "arr-db-to-ebay", "arr-ebay-to-db", "arr-db-to-shopify"], customer: "ebay"
+    },
+    {
+      title: "10. ✅ Card is removed from every channel — including the in-store cashier's view",
+      desc: "One physical card → one sale on eBay → DB decrement → fan-out to TCGPlayer AND Shopify in-store. The cashier at the counter never sees it as available again.",
+      detail: "Final state:\n  DB inventory_unit.quantity_on_hand = 0\n  channel_listing[tcgplayer]   = 0\n  channel_listing[ebay]        = sold\n  channel_listing[shopify_pos] = 0\n  sale recorded with channel='ebay'",
+      active: [], done: ["tcgplayer", "db", "ebay", "shopify"], arrows: [], shown: ["arr-tcg-to-db", "arr-db-to-ebay", "arr-ebay-to-db", "arr-db-to-tcg", "arr-db-to-shopify"], customer: null
+    }
+  ],
+
+  B: [
+    {
+      title: "1. Staff lists a new card on TCGPlayer",
+      desc: "Same start as Scenario A — owner catalogs the card in TCGPlayer's storefront because that's the most ergonomic entry path.",
+      detail: "TCGPlayer storefront → seller listing created\n  product_id: 67890 (assigned by TCGPlayer)\n  qty: 1, condition: NM, price: $4.00",
+      active: ["tcgplayer"], done: [], arrows: [], shown: [], customer: null
+    },
+    {
+      title: "2. CSV sync ingests the card into the local DB",
+      desc: "The TCGPlayer Sync Worker pulls the CSV, sees the new TCGplayer ID, creates the product / inventory_unit / channel_listing rows, and caches the image. The DB is now aware of the card.",
+      detail: "GET PRO Seller CSV → diff → new TCGplayer ID 67890\nINSERT product, inventory_unit, channel_listing[tcgplayer]\nFETCH https://product-images.tcgplayer.com/fit-in/200x200/67890.jpg\nENQUEUE outbound_change → eBay\nENQUEUE outbound_change → Shopify",
+      active: ["tcgplayer", "db"], done: [], arrows: ["arr-tcg-to-db"], shown: [], customer: null
+    },
+    {
+      title: "3. eBay Sync Worker publishes to eBay",
+      desc: "The DB's outbound queue feeds the eBay worker, which publishes the listing the same way as in Scenario A.",
+      detail: "POST inventory_item / offer / publish → eBay listing created\nINSERT channel_listing[ebay]",
+      active: ["db", "ebay"], done: ["tcgplayer"], arrows: ["arr-db-to-ebay"], shown: ["arr-tcg-to-db"], customer: null
+    },
+    {
+      title: "4. Shopify Sync Worker publishes the card to the in-store catalog",
+      desc: "Concurrently, the Shopify worker creates a Shopify Product (POS sales channel only). The card now exists in Shopify's catalog so the cashier can ring it up either via our POS UI handoff (referenced line item) or directly via Shopify POS native browse.",
+      detail: "POST /admin/api/2025-01/products.json (POS-channel-only)\n  inventory_quantity = 1, price = 4.00\nUPDATE product SET shopify_product_id=…, shopify_variant_id=…\nINSERT channel_listing[shopify_pos]",
+      active: ["db", "shopify"], done: ["tcgplayer", "ebay"], arrows: ["arr-db-to-shopify"], shown: ["arr-tcg-to-db", "arr-db-to-ebay"], customer: null
+    },
+    {
+      title: "5. A walk-in customer wants the card",
+      desc: "A customer at the counter wants to buy the card. The cashier opens our POS UI on the tablet and searches for it.",
+      detail: "GET /pos/search?q='lightning+bolt'\n→ inventory_unit visible with image, condition, price, qty\n→ also visible in Shopify POS native catalog (since step 4)",
+      active: ["db", "posui"], done: ["tcgplayer", "ebay", "shopify"], arrows: ["arr-db-to-posui"], shown: ["arr-tcg-to-db", "arr-db-to-ebay", "arr-db-to-shopify"], customer: "walkin"
+    },
+    {
+      title: "6. Cashier builds the cart and sends a Draft Order to Shopify POS",
+      desc: "Cashier adds the card to the cart, picks Card payment (with surcharge). Our app creates a Draft Order via Shopify Admin API — line items reference the variant_id from step 4, so they appear as cataloged items rather than custom lines.",
+      detail: "POST /admin/api/2025-01/draft_orders.json\n  line_items: [{ variant_id: 9876543210, quantity: 1 }]\n  + card_surcharge line item\n→ draft_order #1234 created",
+      active: ["posui", "shopify"], done: ["tcgplayer", "db", "ebay"], arrows: ["arr-posui-to-shopify"], shown: ["arr-tcg-to-db", "arr-db-to-ebay", "arr-db-to-posui", "arr-db-to-shopify"], customer: "walkin"
+    },
+    {
+      title: "7. Cashier processes payment in the Shopify POS app",
+      desc: "Cashier swipes to the Shopify POS app, opens Drafts, taps #1234, processes the customer's card on the reader (or selects Cash). Shopify completes the order and decrements its own variant inventory.",
+      detail: "Shopify POS app → Drafts → #1234 → Charge\n→ order #5678 created in Shopify\n→ Shopify variant inventory_quantity: 1 → 0 (Shopify-side)",
+      active: ["shopify"], done: ["tcgplayer", "db", "ebay", "posui"], arrows: [], shown: ["arr-tcg-to-db", "arr-db-to-ebay", "arr-db-to-posui", "arr-posui-to-shopify", "arr-db-to-shopify"], customer: "walkin"
+    },
+    {
+      title: "8. Shopify fires orders/create → DB decrements",
+      desc: "Shopify sends the orders/create webhook to our server. The webhook receiver matches by shopify_variant_id back to our inventory_unit, decrements atomically, records the sale, and queues outbound updates for eBay and TCGPlayer. Shopify itself doesn't need a fan-out push — it already knows the new state.",
+      detail: "POST /webhooks/shopify/orders/create  (HMAC verified)\nMATCH shopify_variant_id → inventory_unit\nUPDATE inventory_unit SET qty = qty - 1 WHERE id=… AND qty >= 1\nINSERT sale (channel='shopify_pos', payment_method='card')\nENQUEUE outbound_change → eBay      (new_qty=0)\nENQUEUE outbound_change → TCGPlayer (new_qty=0)",
+      active: ["shopify", "db"], done: ["tcgplayer", "ebay", "posui"], arrows: ["arr-shopify-to-db"], shown: ["arr-tcg-to-db", "arr-db-to-ebay", "arr-db-to-posui", "arr-posui-to-shopify", "arr-db-to-shopify"], customer: "walkin"
+    },
+    {
+      title: "9. eBay quantity push removes the listing",
+      desc: "The eBay Sync Worker drains the queue ~60s later and pushes qty=0 to eBay's Inventory API. eBay ends the listing.",
+      detail: "PUT /sell/inventory/v1/inventory_item/{sku}\n  body: { availability: { shipToLocationAvailability: { quantity: 0 } } }\n→ eBay listing ended",
+      active: ["db", "ebay"], done: ["tcgplayer", "shopify", "posui"], arrows: ["arr-db-to-ebay"], shown: ["arr-tcg-to-db", "arr-db-to-posui", "arr-posui-to-shopify", "arr-shopify-to-db", "arr-db-to-shopify"], customer: null
+    },
+    {
+      title: "10. TCGPlayer CSV upload removes from the marketplace",
+      desc: "On the next outbound CSV cycle, the TCGPlayer worker uploads qty=0 for this TCGplayer ID. The card is removed from TCGPlayer.",
+      detail: "POST PRO Seller bulk uploader → row {tcgplayer_id:67890, qty:0}\nUPDATE channel_listing[tcgplayer] SET last_pushed_quantity = 0",
+      active: ["db", "tcgplayer"], done: ["ebay", "shopify", "posui"], arrows: ["arr-db-to-tcg"], shown: ["arr-tcg-to-db", "arr-db-to-ebay", "arr-db-to-posui", "arr-posui-to-shopify", "arr-shopify-to-db", "arr-db-to-shopify"], customer: null
+    },
+    {
+      title: "11. ✅ Card removed from every channel — including the in-store catalog",
+      desc: "Walk-in sale → DB decrement → fan-out to eBay AND TCGPlayer. The Shopify in-store catalog is already at 0 because Shopify processed the order itself. Every channel agrees: the card is gone.",
+      detail: "Final state:\n  DB inventory_unit.quantity_on_hand = 0\n  channel_listing[tcgplayer]   = 0\n  channel_listing[ebay]        = ended\n  channel_listing[shopify_pos] = 0  (Shopify-decremented at sale time)\n  sale recorded with channel='shopify_pos', payment_method='card'\n  Shopify order #5678 (financial source of truth)",
+      active: [], done: ["tcgplayer", "db", "ebay", "posui", "shopify"], arrows: [], shown: ["arr-tcg-to-db", "arr-db-to-ebay", "arr-db-to-posui", "arr-posui-to-shopify", "arr-shopify-to-db", "arr-db-to-tcg", "arr-db-to-shopify"], customer: null
+    }
+  ]
+};
+
+// ----- State -----
+let currentScenario = "A";
+let currentStep = 0;
+let autoplayTimer = null;
+
+const ALL_BOXES = ["tcgplayer", "db", "ebay", "posui", "shopify"];
+const ALL_ARROWS = ["arr-tcg-to-db", "arr-db-to-tcg", "arr-db-to-ebay", "arr-ebay-to-db", "arr-db-to-posui", "arr-posui-to-shopify", "arr-shopify-to-db", "arr-db-to-shopify"];
+
+// ----- Render -----
+function render() {
+  const steps = SCENARIOS[currentScenario];
+  const step = steps[currentStep];
+
+  // Boxes
+  ALL_BOXES.forEach(name => {
+    const el = document.getElementById("box-" + name);
+    el.classList.remove("active", "done", "dim");
+    if (step.active.includes(name)) el.classList.add("active");
+    else if (step.done.includes(name)) el.classList.add("done");
+    else el.classList.add("dim");
+  });
+
+  // Arrows
+  ALL_ARROWS.forEach(id => {
+    const el = document.getElementById(id);
+    el.classList.remove("active", "shown");
+    if (step.arrows.includes(id)) {
+      el.classList.add("active");
+      // Use red arrowhead
+      el.querySelector("path").setAttribute("marker-end", "url(#arrowhead)");
+    } else if (step.shown.includes(id)) {
+      el.classList.add("shown");
+      el.querySelector("path").setAttribute("marker-end", "url(#arrowhead-dim)");
+    } else {
+      el.querySelector("path").setAttribute("marker-end", "url(#arrowhead-dim)");
+    }
+  });
+
+  // Customer indicator
+  document.getElementById("customer-ebay").setAttribute("opacity", step.customer === "ebay" ? "1" : "0");
+  document.getElementById("customer-walkin").setAttribute("opacity", step.customer === "walkin" ? "1" : "0");
+  if (step.customer) {
+    document.getElementById("customer-" + step.customer).classList.add("pulse");
+  } else {
+    document.getElementById("customer-ebay").classList.remove("pulse");
+    document.getElementById("customer-walkin").classList.remove("pulse");
+  }
+
+  // Step panel
+  document.getElementById("step-counter").textContent =
+    `Scenario ${currentScenario} — Step ${currentStep + 1} of ${steps.length}`;
+  document.getElementById("step-title").textContent = step.title;
+  document.getElementById("step-desc").textContent = step.desc;
+  document.getElementById("step-detail").textContent = step.detail || "";
+
+  // Buttons
+  document.getElementById("btn-prev").disabled = currentStep === 0;
+  document.getElementById("btn-next").disabled = currentStep === steps.length - 1;
+}
+
+// ----- Wiring -----
+document.querySelectorAll(".scenario-tab").forEach(btn => {
+  btn.addEventListener("click", () => {
+    stopAutoplay();
+    document.querySelectorAll(".scenario-tab").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    currentScenario = btn.dataset.scenario;
+    currentStep = 0;
+    render();
+  });
+});
+
+document.getElementById("btn-prev").addEventListener("click", () => {
+  stopAutoplay();
+  if (currentStep > 0) { currentStep--; render(); }
+});
+document.getElementById("btn-next").addEventListener("click", () => {
+  stopAutoplay();
+  if (currentStep < SCENARIOS[currentScenario].length - 1) { currentStep++; render(); }
+});
+document.getElementById("btn-reset").addEventListener("click", () => {
+  stopAutoplay();
+  currentStep = 0;
+  render();
+});
+
+function stopAutoplay() {
+  if (autoplayTimer) {
+    clearInterval(autoplayTimer);
+    autoplayTimer = null;
+    document.getElementById("btn-play").textContent = "▶ Auto";
+  }
+}
+document.getElementById("btn-play").addEventListener("click", () => {
+  if (autoplayTimer) { stopAutoplay(); return; }
+  document.getElementById("btn-play").textContent = "⏸ Stop";
+  autoplayTimer = setInterval(() => {
+    const max = SCENARIOS[currentScenario].length - 1;
+    if (currentStep < max) { currentStep++; render(); }
+    else stopAutoplay();
+  }, 2200);
+});
+
+// Keyboard: arrow keys
+document.addEventListener("keydown", e => {
+  if (e.key === "ArrowRight") document.getElementById("btn-next").click();
+  if (e.key === "ArrowLeft") document.getElementById("btn-prev").click();
+});
+
+render();
+</script>
+</body>
+</html>

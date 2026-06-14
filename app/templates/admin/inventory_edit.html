@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<div class="max-w-lg space-y-5">
+
+  <div class="flex items-center gap-3 anim-1">
+    <a href="{{ back_url }}" class="text-slate-400 hover:text-slate-600 transition-colors">← Inventory</a>
+    <h1 class="text-2xl font-bold tc-gradient-text">Edit item</h1>
+  </div>
+
+  {% if created %}
+  <div class="bg-emerald-50 border border-emerald-200 rounded-2xl px-4 py-3 text-emerald-700 text-sm anim-1">
+    Item created successfully.
+  </div>
+  {% endif %}
+
+  {% if saved %}
+  <div class="bg-emerald-50 border border-emerald-200 rounded-2xl px-4 py-3 text-emerald-700 text-sm anim-1">
+    Changes saved.
+  </div>
+  {% endif %}
+
+  {% if adjusted %}
+  <div class="bg-emerald-50 border border-emerald-200 rounded-2xl px-4 py-3 text-emerald-700 text-sm anim-1">
+    Stock adjusted by {{ "+" if adjusted|int > 0 else "" }}{{ adjusted }}.
+    New quantity: <strong>{{ unit.quantity_on_hand }}</strong>.
+  </div>
+  {% endif %}
+
+  {% if error %}
+  <div class="bg-rose-50 border border-rose-200 rounded-2xl px-4 py-3 text-rose-700 text-sm anim-1">
+    {% if error == 'bad_price' %}Invalid price — enter a number like 4.99.
+    {% elif error == 'bad_quantity' %}Quantity and reserve must be 0 or greater.
+    {% elif error == 'reserve_exceeds_qty' %}Reserve quantity cannot exceed quantity on hand.
+    {% elif error == 'zero_delta' %}Adjustment delta cannot be zero.
+    {% elif error == 'bad_reason' %}Invalid adjustment reason.
+    {% else %}{{ error }}{% endif %}
+  </div>
+  {% endif %}
+
+  <!-- Read-only product info -->
+  <div class="bg-sky-50 rounded-2xl border border-sky-100 px-5 py-4 flex gap-4 items-center anim-1">
+    {% if unit.product.has_image %}
+    <img src="{{ unit.product.image_url_path }}" alt="" class="w-16 h-16 object-contain rounded-xl border border-sky-100 bg-white">
+    {% else %}
+    <div class="w-16 h-16 bg-white rounded-xl border border-sky-100 flex items-center justify-center text-sky-200 text-2xl">★</div>
+    {% endif %}
+    <div class="flex-1 min-w-0">
+      <p class="font-semibold text-slate-900">{{ unit.product.name }}</p>
+      <p class="text-xs text-slate-400 mt-0.5">
+        {{ unit.product.set or unit.product.supply_category or unit.product.kind }}
+        {% if unit.condition %} · {{ unit.condition }}{% endif %}
+      </p>
+    </div>
+    {% if is_store_item %}
+    <span class="text-xs bg-amber-100 text-amber-700 font-semibold px-2 py-0.5 rounded-full">Store item</span>
+    {% else %}
+    <span class="text-xs bg-purple-100 text-purple-700 font-semibold px-2 py-0.5 rounded-full">TCGPlayer</span>
+    {% endif %}
+  </div>
+
+  <!-- Edit price / qty -->
+  <form method="post" action="/admin/inventory/{{ unit.id }}/edit"
+        class="bg-white rounded-2xl border border-sky-100 shadow-sm p-5 space-y-4 anim-2">
+
+    <input type="hidden" name="back_q" value="{{ back_url.split('q=')[1].split('&')[0] if 'q=' in back_url else '' }}">
+    <input type="hidden" name="back_page" value="{{ back_url.split('page=')[1].split('&')[0] if 'page=' in back_url else '0' }}">
+
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-xs uppercase tracking-widest text-slate-400 mb-1">Price ($)</label>
+        <input name="unit_price" type="text" inputmode="decimal"
+               value="{{ form_price if form_price else ('%.2f'|format(unit.unit_price) if unit.unit_price is not none else '') }}"
+               placeholder="0.00"
+               class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-sky-300 tabular-nums">
+      </div>
+      <div>
+        <label class="block text-xs uppercase tracking-widest text-slate-400 mb-1"
+               title="Won't sell below this quantity on TCGPlayer marketplace">Reserve qty</label>
+        <input name="reserve_quantity" type="number" min="0"
+               value="{{ form_reserve if form_reserve else unit.reserve_quantity }}"
+               class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-sky-300 tabular-nums">
+        <p class="text-xs text-slate-400 mt-1">Must be &le; quantity on hand</p>
+      </div>
+    </div>
+
+    <div>
+      <label class="block text-xs uppercase tracking-widest text-slate-400 mb-1">Quantity on hand</label>
+      <input name="quantity_on_hand" type="number" min="0"
+             value="{{ form_qty if form_qty else unit.quantity_on_hand }}"
+             class="w-28 px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-sky-300 tabular-nums">
+    </div>
+
+    <div class="flex gap-3 pt-1">
+      <button type="submit"
+              class="flex-1 bg-sky-500 hover:bg-sky-600 text-white font-semibold px-4 py-2.5 rounded-full transition-all shadow-sm text-sm">
+        Save changes
+      </button>
+      <a href="{{ back_url }}"
+         class="px-4 py-2.5 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50 text-sm font-semibold transition-all">
+        Cancel
+      </a>
+    </div>
+  </form>
+
+  <!-- Manual adjustment -->
+  <details class="bg-white rounded-2xl border border-sky-100 shadow-sm anim-3" {% if adjusted %}open{% endif %}>
+    <summary class="px-5 py-4 cursor-pointer select-none font-semibold text-slate-700 flex items-center justify-between list-none">
+      <span>Adjust stock</span>
+      <span class="text-xs font-normal text-slate-400">Restock, damage, shrinkage, correction…</span>
+    </summary>
+
+    <form method="post" action="/admin/inventory/{{ unit.id }}/adjust"
+          class="px-5 pb-5 space-y-4 border-t border-sky-50 pt-4">
+
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs uppercase tracking-widest text-slate-400 mb-1">Change (+/-)</label>
+          <input name="delta" type="number" placeholder="+5 or -2" required
+                 class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-sky-300 tabular-nums">
+          <p class="text-xs text-slate-400 mt-1">
+            Current: <strong class="tabular-nums">{{ unit.quantity_on_hand }}</strong> · floors at 0
+          </p>
+        </div>
+        <div>
+          <label class="block text-xs uppercase tracking-widest text-slate-400 mb-1">Reason</label>
+          <select name="reason" required
+                  class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-sky-300 bg-white">
+            {% for r in adjustment_reasons %}
+            <option value="{{ r }}">{{ r|capitalize }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-xs uppercase tracking-widest text-slate-400 mb-1">Note (optional)</label>
+        <input name="note" type="text" placeholder="Brief description…" maxlength="255"
+               class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-sky-300">
+      </div>
+
+      <button type="submit"
+              class="w-full bg-amber-400 hover:bg-amber-500 text-white font-semibold px-4 py-2.5 rounded-full transition-all shadow-sm text-sm">
+        Apply adjustment
+      </button>
+    </form>
+
+    {% if recent_adjustments %}
+    <div class="border-t border-sky-50 px-5 py-4">
+      <p class="text-xs uppercase tracking-widest text-slate-400 mb-3">Recent adjustments</p>
+      <table class="w-full text-xs">
+        <thead>
+          <tr class="text-left text-slate-400">
+            <th class="pb-1 font-normal">Date</th>
+            <th class="pb-1 font-normal text-right">Delta</th>
+            <th class="pb-1 font-normal">Reason</th>
+            <th class="pb-1 font-normal">Note</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-50">
+          {% for adj in recent_adjustments %}
+          <tr>
+            <td class="py-1.5 text-slate-400 tabular-nums">{{ adj.created_at.strftime('%m/%d %H:%M') }}</td>
+            <td class="py-1.5 text-right tabular-nums font-semibold
+                       {{ 'text-emerald-600' if adj.delta > 0 else 'text-rose-600' }}">
+              {{ '+' if adj.delta > 0 else '' }}{{ adj.delta }}
+            </td>
+            <td class="py-1.5 px-2 text-slate-600">{{ adj.reason }}</td>
+            <td class="py-1.5 text-slate-400 truncate max-w-[140px]">{{ adj.note or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </details>
+
+  {% if is_store_item %}
+  <!-- Delete (store-managed items only) -->
+  <form method="post" action="/admin/inventory/{{ unit.id }}/delete"
+        class="anim-4"
+        onsubmit="return confirm('Permanently delete {{ unit.product.name }}? This cannot be undone.')">
+    <button type="submit"
+            class="w-full border border-rose-200 text-rose-400 hover:bg-rose-50 hover:text-rose-600 font-semibold px-4 py-2.5 rounded-full transition-all text-sm">
+      Delete item
+    </button>
+  </form>
+  {% endif %}
+
+</div>
+{% endblock %}

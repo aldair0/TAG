@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}Store Items{% endblock %}
+{% block content %}
+<div class="space-y-5">
+
+  <div class="flex items-baseline justify-between anim-1">
+    <div>
+      <h1 class="text-2xl font-bold tc-gradient-text">Store Items</h1>
+      <p class="text-sm text-slate-500 mt-0.5">Sealed products, accessories, 3D prints, and other items not managed by TCGPlayer.</p>
+    </div>
+    <a href="/admin/supplies/new"
+       class="px-4 py-1.5 bg-sky-500 hover:bg-sky-600 text-white font-semibold rounded-full text-sm shadow-sm transition-all whitespace-nowrap">
+      + Add Item
+    </a>
+  </div>
+
+  {% if created %}
+  <div class="bg-emerald-50 border border-emerald-200 rounded-2xl px-4 py-3 flex items-center gap-2 text-emerald-800 text-sm anim-1">
+    <span class="text-lg">✓</span> Item added to store inventory.
+  </div>
+  {% endif %}
+  {% if updated %}
+  <div class="bg-emerald-50 border border-emerald-200 rounded-2xl px-4 py-3 flex items-center gap-2 text-emerald-800 text-sm anim-1">
+    <span class="text-lg">✓</span> Item updated.
+  </div>
+  {% endif %}
+  {% if deleted %}
+  <div class="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 flex items-center gap-2 text-amber-800 text-sm anim-1">
+    <span class="text-lg">✓</span> Item deleted.
+  </div>
+  {% endif %}
+  {% if error %}
+  <div class="bg-rose-50 border border-rose-200 rounded-2xl px-4 py-3 text-rose-700 text-sm anim-1">Error: {{ error }}</div>
+  {% endif %}
+
+  {% if not rows %}
+  <div class="bg-white rounded-2xl border border-sky-100 p-12 text-center anim-2">
+    <div class="text-5xl mb-3 opacity-30">🏪</div>
+    <p class="text-slate-400">No store items yet.</p>
+    <a href="/admin/supplies/new"
+       class="inline-block mt-4 bg-sky-500 hover:bg-sky-600 text-white font-semibold px-5 py-2 rounded-full transition-all text-sm">
+      Add your first item
+    </a>
+  </div>
+  {% else %}
+  <div class="bg-white rounded-2xl border border-sky-100 shadow-sm overflow-hidden anim-2">
+    <table class="w-full text-sm">
+      <thead class="tc-thead">
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Category / Subtype</th>
+          <th>Condition</th>
+          <th class="text-right">Qty</th>
+          <th class="text-right">Price</th>
+          <th>Channels</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-50">
+        {% for unit in rows %}
+        <tr class="hover:bg-sky-50 transition-colors">
+          <td class="px-3 py-2.5 font-medium text-slate-800">
+            {{ unit.product.name }}
+            {% if unit.product.set %}<span class="text-xs text-slate-400 ml-1">· {{ unit.product.set }}</span>{% endif %}
+          </td>
+          <td class="px-3 py-2.5">
+            <span class="text-xs font-semibold px-2 py-0.5 rounded-full
+              {% if unit.product.kind == 'single' %}bg-purple-100 text-purple-700
+              {% elif unit.product.kind == 'sealed' %}bg-emerald-100 text-emerald-700
+              {% else %}bg-pink-100 text-pink-700{% endif %}">
+              {{ unit.product.kind }}
+            </span>
+          </td>
+          <td class="px-3 py-2.5 text-slate-500 text-xs">
+            {{ unit.product.supply_category or unit.product.sealed_subtype or '—' }}
+          </td>
+          <td class="px-3 py-2.5 text-slate-500 text-xs">{{ unit.condition or '—' }}</td>
+          <td class="px-3 py-2.5 text-right tabular-nums font-semibold
+                     {{ 'text-rose-500' if unit.quantity_on_hand == 0 else 'text-slate-700' }}">
+            {% if unit.quantity_on_hand >= unlimited_qty and unit.product.kind == 'supply' %}∞{% else %}{{ unit.quantity_on_hand }}{% endif %}
+          </td>
+          <td class="px-3 py-2.5 text-right tabular-nums text-slate-600">
+            {% if unit.unit_price is not none %}${{ "%.2f"|format(unit.unit_price) }}{% else %}—{% endif %}
+          </td>
+          <td class="px-3 py-2.5">
+            <div class="flex flex-wrap gap-1">
+              {% for cl in unit.channel_listings %}
+              <span class="text-xs font-semibold px-2 py-0.5 rounded-full
+                {% if cl.sync_state == 'ok' %}bg-emerald-100 text-emerald-700
+                {% elif cl.sync_state == 'pending' %}bg-yellow-100 text-yellow-700
+                {% else %}bg-rose-100 text-rose-700{% endif %}">
+                {{ cl.channel }}
+              </span>
+              {% endfor %}
+              {% if not unit.channel_listings %}
+              <span class="text-xs text-slate-300">POS only</span>
+              {% endif %}
+            </div>
+          </td>
+          <td class="px-3 py-2.5 text-right">
+            <div class="flex items-center justify-end gap-3">
+              {% if unit.product.kind == 'supply' %}
+              <a href="/admin/supplies/{{ unit.id }}/edit"
+                 class="text-xs text-slate-400 hover:text-sky-600 font-semibold transition-colors">Edit</a>
+              {% else %}
+              <a href="/admin/inventory/{{ unit.id }}/edit"
+                 class="text-xs text-slate-400 hover:text-sky-600 font-semibold transition-colors">Edit</a>
+              {% endif %}
+              <form method="post" action="/admin/inventory/{{ unit.id }}/delete"
+                    onsubmit="return confirm('Delete {{ unit.product.name }}? This cannot be undone.')">
+                <button type="submit"
+                        class="text-xs text-rose-300 hover:text-rose-600 font-semibold transition-colors">Del</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

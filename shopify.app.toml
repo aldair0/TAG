@@ -1,0 +1,15 @@
+name = "TAG Inventory"
+client_id = "d6bd4645320694948ce550dd5ea776c5"
+application_url = "http://localhost:8000"
+embedded = true
+
+[access_scopes]
+scopes = "write_products,read_products,write_inventory,read_inventory,read_orders,write_orders,read_draft_orders,write_draft_orders,read_locations"
+
+[auth]
+redirect_urls = [
+  "http://localhost:8000/auth/shopify/callback"
+]
+
+[webhooks]
+api_version = "2026-04"

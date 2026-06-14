@@ -1,0 +1,105 @@
+{% if not units %}
+<div class="bg-white rounded-2xl border border-sky-100 p-12 text-center">
+  {% if q %}
+  <div class="text-5xl mb-3 opacity-30">🔍</div>
+  <p class="text-slate-400">No results for <strong>{{ q }}</strong>.</p>
+  {% else %}
+  <div class="text-5xl mb-3 opacity-30">📦</div>
+  <p class="text-slate-400">No inventory yet.</p>
+  <a href="/admin/sync/" class="inline-block mt-4 bg-sky-500 hover:bg-sky-600 text-white font-semibold px-5 py-2 rounded-full transition-all text-sm">Run a sync</a>
+  {% endif %}
+</div>
+{% else %}
+<div class="overflow-x-auto rounded-2xl border border-sky-100 shadow-sm">
+<div class="bg-white">
+  <table class="w-full text-sm">
+    <thead class="tc-thead">
+      <tr>
+        <th class="w-12">Img</th>
+        <th>Name</th><th>Set</th><th>Kind</th><th>Cond.</th>
+        <th class="text-right">Qty</th>
+        <th class="text-right" title="TCGPlayer reserve floor — won't sell below this on the marketplace">Reserve</th>
+        <th class="text-right">Price</th><th>Channels</th><th></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-50">
+      {% for unit in units %}
+      <tr class="hover:bg-sky-50 transition-colors tc-slide-row">
+        <td class="px-3 py-2">
+          {% if unit.product.has_image %}
+          <div class="relative inline-block group/img">
+            <img src="{{ unit.product.image_url_path }}" alt="" class="w-[75px] h-[75px] object-contain rounded-lg border border-sky-50 cursor-zoom-in" loading="lazy">
+            <div class="absolute left-full ml-3 top-1/2 -translate-y-1/2 z-50
+                        hidden group-hover/img:block pointer-events-none
+                        w-56 h-56 p-1.5 bg-white rounded-2xl border border-sky-100 shadow-2xl">
+              <img src="{{ unit.product.image_url_path }}" alt="{{ unit.product.name }}"
+                   class="w-full h-full object-contain rounded-xl">
+            </div>
+          </div>
+          {% else %}
+          <div class="w-[75px] h-[75px] bg-sky-50 rounded-lg flex items-center justify-center text-sky-200 text-lg">★</div>
+          {% endif %}
+        </td>
+        <td class="px-3 py-2 font-medium">{{ unit.product.name }}
+          {% if unit.product.rarity %}<span class="text-xs text-slate-400 ml-1">({{ unit.product.rarity }})</span>{% endif %}
+        </td>
+        <td class="px-3 py-2 text-slate-500 text-xs">{{ unit.product.set or "—" }}</td>
+        <td class="px-3 py-2">
+          <span class="text-xs font-semibold px-2 py-0.5 rounded-full
+            {% if unit.product.kind == 'single' %}bg-sky-100 text-sky-700
+            {% elif unit.product.kind == 'sealed' %}bg-emerald-100 text-emerald-700
+            {% else %}bg-pink-100 text-pink-700{% endif %}">
+            {{ unit.product.kind }}{% if unit.product.sealed_subtype %} · {{ unit.product.sealed_subtype }}{% endif %}
+          </span>
+        </td>
+        <td class="px-3 py-2 text-slate-500 text-sm">{{ unit.condition or "—" }}</td>
+        <td class="px-3 py-2 text-right tabular-nums font-semibold">{{ unit.quantity_on_hand }}</td>
+        <td class="px-3 py-2 text-right tabular-nums text-slate-500">
+          {% if unit.reserve_quantity %}{{ unit.reserve_quantity }}{% else %}<span class="text-slate-300">—</span>{% endif %}
+        </td>
+        <td class="px-3 py-2 text-right tabular-nums text-slate-600">
+          {% if unit.unit_price is not none %}${{ "%.2f"|format(unit.unit_price) }}{% else %}—{% endif %}
+        </td>
+        <td class="px-3 py-2">
+          <div class="flex flex-wrap gap-1">
+            {% for cl in unit.channel_listings %}
+            <span class="text-xs font-semibold px-2 py-0.5 rounded-full
+              {% if cl.sync_state == 'ok' %}
+                {% if cl.channel == 'ebay' %}bg-amber-100 text-amber-700
+                {% elif cl.channel == 'tcgplayer' %}bg-purple-100 text-purple-700
+                {% else %}bg-emerald-100 text-emerald-700{% endif %}
+              {% elif cl.sync_state == 'pending' %}bg-yellow-100 text-yellow-700
+              {% else %}bg-rose-100 text-rose-700{% endif %}">
+              {{ cl.channel }}
+            </span>
+            {% endfor %}
+          </div>
+        </td>
+        <td class="px-3 py-2 text-right">
+          <div class="flex items-center justify-end gap-3">
+            <a href="/admin/inventory/{{ unit.id }}/edit{% if q or page > 1 %}?{% if q %}back_q={{ q }}{% if page > 1 %}&{% endif %}{% endif %}{% if page > 1 %}back_page={{ page }}{% endif %}{% endif %}"
+               class="text-xs text-slate-400 hover:text-sky-600 font-semibold transition-colors">Edit</a>
+            {% if unit.product.tcgplayer_product_id is none %}
+            <form method="post" action="/admin/inventory/{{ unit.id }}/delete"
+                  onsubmit="return confirm('Delete {{ unit.product.name }}? This cannot be undone.')">
+              <button type="submit"
+                      class="text-xs text-rose-300 hover:text-rose-600 font-semibold transition-colors">Del</button>
+            </form>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+</div>
+
+{% if pages > 1 %}
+<div class="flex justify-between items-center text-sm">
+  <div>{% if page > 1 %}<a href="?page={{ page-1 }}{% if q %}&q={{ q }}{% endif %}" class="px-4 py-1.5 bg-white border border-sky-200 text-sky-600 rounded-full hover:bg-sky-50 transition-all">← Prev</a>{% endif %}</div>
+  <span class="text-slate-400">Page {{ page }} of {{ pages }}</span>
+  <div>{% if page < pages %}<a href="?page={{ page+1 }}{% if q %}&q={{ q }}{% endif %}" class="px-4 py-1.5 bg-white border border-sky-200 text-sky-600 rounded-full hover:bg-sky-50 transition-all">Next →</a>{% endif %}</div>
+</div>
+{% endif %}
+{% endif %}

@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "PowerShell(*)",
+      "Read(//c/PulseWriter/**)",
+      "WebFetch(domain:tcgplayer.com)",
+      "WebFetch(domain:shopify.dev)"
+    ]
+  },
+  "plansDirectory": "claude_documents"
+}

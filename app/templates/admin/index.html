@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<div class="space-y-6">
+
+  <div class="flex items-baseline justify-between anim-1">
+    <div>
+      <h1 class="text-2xl font-bold tc-gradient-text">Dashboard</h1>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 anim-2">
+    <div class="bg-white rounded-2xl border border-sky-100 shadow-sm p-5 text-center tc-card-hover">
+      <div class="text-xs uppercase tracking-widest text-slate-400 mb-1">Products</div>
+      <div class="text-3xl font-bold {% if products_total %}tc-gradient-text{% else %}text-slate-300{% endif %}">{{ products_total }}</div>
+      <div class="flex justify-center gap-1 mt-2 flex-wrap">
+        <span class="bg-sky-100 text-sky-700 text-xs font-semibold px-2 py-0.5 rounded-full">{{ singles_total }} singles</span>
+        <span class="bg-emerald-100 text-emerald-700 text-xs font-semibold px-2 py-0.5 rounded-full">{{ sealed_total }} sealed</span>
+        <span class="bg-pink-100 text-pink-700 text-xs font-semibold px-2 py-0.5 rounded-full">{{ supplies_total }} supplies</span>
+      </div>
+    </div>
+    <div class="bg-white rounded-2xl border border-sky-100 shadow-sm p-5 text-center tc-card-hover">
+      <div class="text-xs uppercase tracking-widest text-slate-400 mb-1">Units on hand</div>
+      <div class="text-3xl font-bold {% if on_hand %}tc-gradient-text{% else %}text-slate-300{% endif %}">{{ on_hand }}</div>
+      <div class="text-xs text-slate-400 mt-2">{{ units_total }} variant{{ "s" if units_total != 1 else "" }}</div>
+    </div>
+    <div class="bg-white rounded-2xl border border-sky-100 shadow-sm p-5 text-center tc-card-hover">
+      <div class="text-xs uppercase tracking-widest text-slate-400 mb-1">Sales</div>
+      <div class="text-3xl font-bold {% if sales_total %}tc-gradient-text{% else %}text-slate-300{% endif %}">{{ sales_total }}</div>
+      <div class="mt-2"><a href="/admin/sales/" class="text-xs text-sky-500 hover:underline">View log →</a></div>
+    </div>
+    <div class="bg-white rounded-2xl border border-sky-100 shadow-sm p-5 text-center tc-card-hover">
+      <div class="text-xs uppercase tracking-widest text-slate-400 mb-1">Open conflicts</div>
+      <div class="text-3xl font-bold {% if conflicts_open %}text-rose-500{% else %}text-slate-300{% endif %}">{{ conflicts_open }}</div>
+      <div class="mt-2"><a href="/admin/sales/conflicts" class="text-xs text-sky-500 hover:underline">Resolve →</a></div>
+    </div>
+  </div>
+
+  <!-- Quick links -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4 anim-3">
+    <div class="bg-white rounded-2xl border border-sky-100 shadow-sm p-5 flex flex-col gap-3 tc-card-hover">
+      <div class="font-semibold text-slate-700 flex items-center gap-2">
+        <span class="text-sky-400 text-xl">↕</span> Outbound queue
+      </div>
+      <div class="flex items-center justify-between">
+        <span class="text-sm text-slate-500">Pending changes</span>
+        {% if pending_outbound %}
+        <span class="bg-pink-400 text-white text-xs font-bold px-2.5 py-0.5 rounded-full tc-badge-pulse">{{ pending_outbound }}</span>
+        {% else %}
+        <span class="bg-sky-100 text-sky-600 text-xs font-semibold px-2.5 py-0.5 rounded-full">0</span>
+        {% endif %}
+      </div>
+      <a href="/admin/sync/outbound" class="mt-auto text-center text-sm border-2 border-sky-200 text-sky-600 hover:bg-sky-50 font-semibold px-4 py-2 rounded-full transition-all">View queue</a>
+    </div>
+    <div class="bg-white rounded-2xl border border-sky-100 shadow-sm p-5 flex flex-col gap-3 tc-card-hover">
+      <div class="font-semibold text-slate-700 flex items-center gap-2">
+        <span class="text-sky-400 text-xl">⟳</span> Sync runs
+      </div>
+      <div class="flex items-center justify-between">
+        <span class="text-sm text-slate-500">Total recorded</span>
+        <span class="bg-sky-100 text-sky-600 text-xs font-semibold px-2.5 py-0.5 rounded-full">{{ sync_runs_total }}</span>
+      </div>
+      <a href="/admin/sync/" class="mt-auto text-center text-sm border-2 border-sky-200 text-sky-600 hover:bg-sky-50 font-semibold px-4 py-2 rounded-full transition-all">Manage sync</a>
+    </div>
+    <div class="bg-white rounded-2xl border border-pink-100 shadow-sm p-5 flex flex-col gap-3 tc-card-hover">
+      <div class="font-semibold text-slate-700 flex items-center gap-2">
+        <span class="text-pink-400 text-xl">★</span> POS
+      </div>
+      <p class="text-sm text-slate-500">Browse inventory and ring up walk-in sales on the tablet.</p>
+      <a href="/pos/" class="mt-auto text-center text-sm bg-pink-400 hover:bg-pink-500 text-white font-semibold px-4 py-2 rounded-full transition-all shadow-sm">Open POS →</a>
+    </div>
+  </div>
+
+
+</div>
+{% endblock %}
