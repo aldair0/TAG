@@ -28,6 +28,7 @@ from app.pos.cart import CART_COOKIE, Cart, decode_cart, encode_cart
 from app.routes.settings import get_pos_rates
 from app.pos.totals import LineSnapshot, compute_totals
 from app.sales import SaleLineInput, record_sale
+from app.sync.tcgplayer.qty_updater import dispatch_after_sale as _tcg_dispatch
 
 logger = logging.getLogger(__name__)
 
@@ -414,6 +415,9 @@ def _checkout_cash(request, session, totals):
     )
     session.commit()
 
+    # Push quantity change to TCGPlayer portal in background
+    _tcg_dispatch([li.inventory_unit_id for li in sale_lines])
+
     oversell_param = "&oversell_conflict=1" if result.had_oversell else ""
     resp = RedirectResponse(
         url=f"/pos/checkout/done?method=cash&sale_id={result.sale.id}{oversell_param}",
@@ -499,6 +503,9 @@ def checkout_card_confirm(
         notes="Card",
     )
     session.commit()
+
+    # Push quantity change to TCGPlayer portal in background
+    _tcg_dispatch([li.inventory_unit_id for li in sale_lines])
 
     error_param = "&oversell_conflict=1" if result.had_oversell else ""
     resp = RedirectResponse(
