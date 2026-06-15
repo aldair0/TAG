@@ -196,6 +196,15 @@ def setup_firewall() -> RedirectResponse:
     return RedirectResponse(url=f"/admin/settings/?fw={status}", status_code=303)
 
 
+@router.post("/diagnostics", response_class=HTMLResponse)
+def send_diagnostics() -> RedirectResponse:
+    """On-demand: email a full diagnostic report to tech support."""
+    from app.diagnostics import send_diagnostic_report
+
+    result = send_diagnostic_report(reason="manual")
+    return RedirectResponse(url=f"/admin/settings/?diag={result['email']}", status_code=303)
+
+
 @router.post("/", response_class=HTMLResponse)
 def settings_save(
     pos_tax_rate: str = Form(...),

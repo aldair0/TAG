@@ -20,6 +20,18 @@
   </div>
   {% endif %}
 
+  {% if image_saved %}
+  <div class="bg-emerald-50 border border-emerald-200 rounded-2xl px-4 py-3 text-emerald-700 text-sm anim-1">
+    Picture uploaded.
+  </div>
+  {% endif %}
+
+  {% if image_removed %}
+  <div class="bg-emerald-50 border border-emerald-200 rounded-2xl px-4 py-3 text-emerald-700 text-sm anim-1">
+    Picture removed.
+  </div>
+  {% endif %}
+
   {% if adjusted %}
   <div class="bg-emerald-50 border border-emerald-200 rounded-2xl px-4 py-3 text-emerald-700 text-sm anim-1">
     Stock adjusted by {{ "+" if adjusted|int > 0 else "" }}{{ adjusted }}.
@@ -34,6 +46,10 @@
     {% elif error == 'reserve_exceeds_qty' %}Reserve quantity cannot exceed quantity on hand.
     {% elif error == 'zero_delta' %}Adjustment delta cannot be zero.
     {% elif error == 'bad_reason' %}Invalid adjustment reason.
+    {% elif error == 'bad_image' %}That file isn't an image — upload a JPG, PNG, or WebP.
+    {% elif error == 'empty_image' %}No file was selected.
+    {% elif error == 'image_too_large' %}Image is too large (max 8&nbsp;MB).
+    {% elif error == 'image_write_failed' %}Couldn't save the image to disk.
     {% else %}{{ error }}{% endif %}
   </div>
   {% endif %}
@@ -41,7 +57,7 @@
   <!-- Read-only product info -->
   <div class="bg-sky-50 rounded-2xl border border-sky-100 px-5 py-4 flex gap-4 items-center anim-1">
     {% if unit.product.has_image %}
-    <img src="{{ unit.product.image_url_path }}" alt="" class="w-16 h-16 object-contain rounded-xl border border-sky-100 bg-white">
+    <img src="{{ unit.product.image_url_path }}?v={{ unit.product.updated_at.timestamp()|int }}" alt="" class="w-16 h-16 object-contain rounded-xl border border-sky-100 bg-white">
     {% else %}
     <div class="w-16 h-16 bg-white rounded-xl border border-sky-100 flex items-center justify-center text-sky-200 text-2xl">★</div>
     {% endif %}
@@ -58,6 +74,53 @@
     <span class="text-xs bg-purple-100 text-purple-700 font-semibold px-2 py-0.5 rounded-full">TCGPlayer</span>
     {% endif %}
   </div>
+
+  <!-- Picture (manual upload; for cards with no TCGPlayer image) -->
+  <details class="bg-white rounded-2xl border border-sky-100 shadow-sm anim-2"
+           {% if not unit.product.has_image %}open{% endif %}>
+    <summary class="px-5 py-4 cursor-pointer select-none font-semibold text-slate-700 flex items-center justify-between list-none">
+      <span>Picture</span>
+      <span class="text-xs font-normal text-slate-400">
+        {% if unit.product.has_image %}Replace or remove the image{% else %}No image yet — add one{% endif %}
+      </span>
+    </summary>
+
+    <div class="px-5 pb-5 border-t border-sky-50 pt-4 space-y-4">
+      <div class="flex items-center gap-4">
+        {% if unit.product.has_image %}
+        <img src="{{ unit.product.image_url_path }}?v={{ unit.product.updated_at.timestamp()|int }}" alt=""
+             class="w-24 h-24 object-contain rounded-xl border border-sky-100 bg-white">
+        {% else %}
+        <div class="w-24 h-24 bg-sky-50 rounded-xl border border-sky-100 flex items-center justify-center text-sky-200 text-3xl">★</div>
+        {% endif %}
+        <p class="text-xs text-slate-400 flex-1">
+          JPG, PNG, or WebP · max 8&nbsp;MB.
+          {% if unit.product.has_image %}Uploading a new file replaces the current picture.{% endif %}
+        </p>
+      </div>
+
+      <form method="post" action="/admin/inventory/{{ unit.id }}/image"
+            enctype="multipart/form-data" class="flex flex-wrap items-center gap-3">
+        <input type="file" name="image" accept="image/*" required
+               class="block text-sm text-slate-600 file:mr-3 file:py-2 file:px-4 file:rounded-full file:border-0
+                      file:text-sm file:font-semibold file:bg-sky-50 file:text-sky-600 hover:file:bg-sky-100">
+        <button type="submit"
+                class="bg-sky-500 hover:bg-sky-600 text-white font-semibold px-4 py-2 rounded-full transition-all shadow-sm text-sm">
+          {% if unit.product.has_image %}Replace picture{% else %}Upload picture{% endif %}
+        </button>
+      </form>
+
+      {% if unit.product.has_image %}
+      <form method="post" action="/admin/inventory/{{ unit.id }}/image/delete"
+            onsubmit="return confirm('Remove the picture for {{ unit.product.name }}?')">
+        <button type="submit"
+                class="text-xs font-semibold text-rose-400 hover:text-rose-600 transition-colors">
+          Remove picture
+        </button>
+      </form>
+      {% endif %}
+    </div>
+  </details>
 
   <!-- Edit price / qty -->
   <form method="post" action="/admin/inventory/{{ unit.id }}/edit"

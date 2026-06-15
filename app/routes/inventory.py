@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import logging
 from decimal import Decimal, InvalidOperation
 from typing import Optional  # used by adjust + delete
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
@@ -22,6 +23,8 @@ from app.paths import templates_dir
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(templates_dir()))
+
+logger = logging.getLogger(__name__)
 
 PAGE_SIZE = 50
 
@@ -130,7 +133,7 @@ def _get_unit_or_404(session: Session, unit_id: int) -> InventoryUnit:
             joinedload(InventoryUnit.adjustments),
         )
         .where(InventoryUnit.id == unit_id)
-    ).scalar_one_or_none()
+    ).unique().scalar_one_or_none()
     if unit is None:
         raise HTTPException(status_code=404)
     return unit
@@ -144,6 +147,8 @@ def inventory_edit_form(
     created: int = 0,
     adjusted: int = 0,
     saved: int = 0,
+    image_saved: int = 0,
+    image_removed: int = 0,
     back_q: str = "",
     back_page: int = 0,
     session: Session = Depends(get_session),
@@ -167,6 +172,8 @@ def inventory_edit_form(
             "created": created,
             "adjusted": adjusted,
             "saved": saved,
+            "image_saved": image_saved,
+            "image_removed": image_removed,
             "back_url": back_url,
             "adjustment_reasons": ADJUSTMENT_REASONS,
             "recent_adjustments": unit.adjustments[:10],
@@ -227,6 +234,90 @@ def inventory_edit_save(
         back_suffix += f"&back_page={back_page}"
     return RedirectResponse(
         url=f"/admin/inventory/{unit_id}/edit?saved=1{back_suffix}", status_code=303
+    )
+
+
+# ---------------------------------------------------------------------------
+# Manual product image (when TCGPlayer has none / the CDN download failed)
+# ---------------------------------------------------------------------------
+
+# Cap uploads so a stray huge file can't fill the disk; cards are small.
+MAX_IMAGE_BYTES = 8 * 1024 * 1024
+
+
+@router.post("/{unit_id}/image", response_class=HTMLResponse)
+def inventory_upload_image(
+    unit_id: int,
+    image: UploadFile = File(...),
+    session: Session = Depends(get_session),
+) -> RedirectResponse:
+    """Save a manually-uploaded picture for this unit's product.
+
+    Writes to the same deterministic path the TCGPlayer fetcher uses
+    (``data/images/<set>/<name>__<number>.jpg``) and flips
+    ``has_image`` — so the image then renders everywhere (inventory,
+    POS, edit) and is served by the existing ``/images`` mount. Works
+    for store items and for TCGPlayer cards whose CDN image 403'd.
+    """
+    unit = _get_unit_or_404(session, unit_id)
+    product = unit.product
+
+    def _back(flag: str) -> RedirectResponse:
+        return RedirectResponse(
+            url=f"/admin/inventory/{unit_id}/edit?{flag}", status_code=303
+        )
+
+    if not (image.content_type or "").lower().startswith("image/"):
+        return _back("error=bad_image")
+
+    # Read with a hard cap (one extra byte tells us it overflowed).
+    data = image.file.read(MAX_IMAGE_BYTES + 1)
+    if not data:
+        return _back("error=empty_image")
+    if len(data) > MAX_IMAGE_BYTES:
+        return _back("error=image_too_large")
+
+    from app.sync.tcgplayer.image_paths import image_local_path
+
+    path = image_local_path(
+        set_name=product.set, name=product.name, number=product.number
+    )
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+    except OSError:
+        return _back("error=image_write_failed")
+
+    product.has_image = True
+    session.commit()
+    return _back("image_saved=1")
+
+
+@router.post("/{unit_id}/image/delete", response_class=HTMLResponse)
+def inventory_delete_image(
+    unit_id: int,
+    session: Session = Depends(get_session),
+) -> RedirectResponse:
+    """Remove the product's image file and clear ``has_image`` so the
+    placeholder shows again (and a fresh upload / re-fetch can replace it)."""
+    unit = _get_unit_or_404(session, unit_id)
+    product = unit.product
+
+    from app.sync.tcgplayer.image_paths import image_local_path
+
+    path = image_local_path(
+        set_name=product.set, name=product.name, number=product.number
+    )
+    try:
+        if path.exists():
+            path.unlink()
+    except OSError:
+        logger.warning("Could not delete image file %s", path, exc_info=True)
+
+    product.has_image = False
+    session.commit()
+    return RedirectResponse(
+        url=f"/admin/inventory/{unit_id}/edit?image_removed=1", status_code=303
     )
 
 

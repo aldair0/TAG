@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.db.models import (
@@ -119,8 +120,26 @@ def record_sale(
         total=total,
         notes=notes,
     )
-    session.add(sale)
-    session.flush()
+    # Insert inside a SAVEPOINT so a concurrent duplicate (two callers passing
+    # the same external_order_id) is caught at the unique(external_order_id)
+    # constraint and resolved to the existing sale — rather than the pre-read
+    # check (a TOCTOU) being the only guard and the loser raising uncaught.
+    try:
+        with session.begin_nested():
+            session.add(sale)
+            session.flush()
+    except IntegrityError:
+        if external_order_id is not None:
+            existing = session.execute(
+                select(Sale).where(Sale.external_order_id == external_order_id)
+            ).scalar_one_or_none()
+            if existing is not None:
+                logger.info(
+                    "record_sale: lost insert race for %s/%s — using existing",
+                    channel, external_order_id,
+                )
+                return RecordedSale(sale=existing)
+        raise
 
     conflicts: list[Conflict] = []
 

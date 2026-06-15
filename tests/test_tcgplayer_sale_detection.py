@@ -102,6 +102,79 @@ def test_v1_to_v2_fans_out_qty_updates_to_ebay_and_shopify_only(session):
     assert {r.channel for r in qty_updates} == {Channel.EBAY.value, Channel.SHOPIFY_POS.value}
 
 
+def _flag_sold_online(session, unit) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    unit.sold_online_at = now
+    unit.sold_online_until = now + timedelta(days=2)
+    session.commit()
+
+
+def test_sold_online_unit_preserved_on_csv_decrease(session):
+    """A flagged unit must NOT be sold by the CSV rotation — the manual
+    Confirm/dismiss flow owns it. The unflagged unit still sells normally."""
+    _ingest("test_data/tcgplayer_fixture.csv", session)
+
+    helix_lp = session.execute(
+        select(InventoryUnit)
+        .join(Product, Product.id == InventoryUnit.product_id)
+        .where(Product.tcgplayer_product_id == 501001, InventoryUnit.condition == "Lightly Played")
+    ).scalar_one()
+    box = session.execute(
+        select(InventoryUnit)
+        .join(Product, Product.id == InventoryUnit.product_id)
+        .where(Product.tcgplayer_product_id == 700001)
+    ).scalar_one()
+
+    _flag_sold_online(session, helix_lp)  # only the helix is flagged
+
+    _ingest("test_data/tcgplayer_fixture_v2.csv", session)  # helix 2→1, box 4→3
+
+    session.refresh(helix_lp)
+    session.refresh(box)
+
+    # Flagged unit preserved: qty unchanged, flag intact, no sale for it.
+    assert helix_lp.quantity_on_hand == 2
+    assert helix_lp.is_sold_online
+    assert session.execute(
+        select(SaleLine).where(SaleLine.inventory_unit_id == helix_lp.id)
+    ).scalars().all() == []
+
+    # Unflagged unit still sold normally by the CSV path.
+    assert box.quantity_on_hand == 3
+    assert len(session.execute(
+        select(SaleLine).where(SaleLine.inventory_unit_id == box.id)
+    ).scalars().all()) == 1
+
+
+def test_sold_online_unit_preserved_on_csv_removal(session):
+    """A flagged unit absent from the CSV must not be sold+deleted."""
+    from app.sync.tcgplayer.apply import apply_plan
+    from app.sync.tcgplayer.diff import IngestPlan
+
+    _ingest("test_data/tcgplayer_fixture.csv", session)
+    box = session.execute(
+        select(InventoryUnit)
+        .join(Product, Product.id == InventoryUnit.product_id)
+        .where(Product.tcgplayer_product_id == 700001)
+    ).scalar_one()
+    _flag_sold_online(session, box)
+    box_id = box.id
+
+    result = apply_plan(IngestPlan(removed_units=[box]), session)
+    session.commit()
+
+    assert result.flags_preserved == 1
+    assert result.sales_recorded == 0
+    survivor = session.get(InventoryUnit, box_id)
+    assert survivor is not None
+    assert survivor.is_sold_online
+    assert session.execute(
+        select(SaleLine).where(SaleLine.inventory_unit_id == box_id)
+    ).scalars().all() == []
+
+
 def test_v1_to_v2_increase_is_treated_as_restock_not_sale(session):
     """Build an artificial fixture in-memory: the same row but with a
     HIGHER quantity than the DB. Should NOT create a Sale."""

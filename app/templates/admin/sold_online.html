@@ -16,13 +16,11 @@
   <!-- How this works -->
   <div class="rounded-2xl bg-sky-50 border border-sky-200 px-4 py-3 text-sm text-sky-800 space-y-1 anim-1">
     <p class="font-semibold">How it works</p>
-    <p>When a card sells on TCGPlayer or eBay before the CSV sync updates inventory, flag it here to prevent a double-sale at the register.
-       Flagged items show a <span class="font-bold text-rose-600">Sold Online</span> overlay in the POS and cannot be added to a cart.
-       Flags auto-expire at the end of the following calendar day — or dismiss manually once the inventory is reconciled.</p>
-    <p class="text-xs text-sky-600 mt-1">
-      Future: wire an email parser to <code class="font-mono bg-sky-100 px-1 rounded">POST /admin/sold-online/signal</code>
-      with <code class="font-mono bg-sky-100 px-1 rounded">card_name</code>, <code class="font-mono bg-sky-100 px-1 rounded">channel</code>, and <code class="font-mono bg-sky-100 px-1 rounded">order_id</code> fields.
-    </p>
+    <p>When a card sells on TCGPlayer, the email receiver flags it here automatically (you can also flag one manually below).
+       Flagged items show a <span class="font-bold text-rose-600">Sold Online</span> overlay in the POS and cannot be added to a cart.</p>
+    <p><span class="font-semibold text-emerald-700">Confirm shipped</span> once you've pulled and shipped the card: it's removed from inventory
+       and the quantity update is pushed to your other channels. Use <span class="font-semibold">False alarm</span> if the flag was wrong —
+       that clears it with no inventory change. Unresolved flags auto-expire at the end of the following calendar day.</p>
   </div>
 
   <!-- Active flags -->
@@ -61,13 +59,21 @@
             <td class="px-3 py-3 font-mono text-xs text-amber-600">
               {{ unit.sold_online_until.strftime("%m/%d %I:%M %p") if unit.sold_online_until else "—" }}
             </td>
-            <td class="px-3 py-3 text-right">
-              <form method="post" action="/admin/sold-online/dismiss/{{ unit.id }}"
-                    onsubmit="return confirm('Dismiss flag for {{ unit.product.name }}? It will be sellable at POS immediately.')">
-                <button class="text-sm px-3 py-1.5 rounded-full border border-emerald-200 text-emerald-600 hover:bg-emerald-50 transition-all font-medium">
-                  ✓ Dismiss
-                </button>
-              </form>
+            <td class="px-3 py-3">
+              <div class="flex items-center justify-end gap-3">
+                <form method="post" action="/admin/sold-online/confirm/{{ unit.id }}"
+                      onsubmit="return confirm('Confirm {{ unit.product.name }} shipped? This removes it from inventory and updates your other channels. This cannot be undone here.')">
+                  <button class="text-sm px-3 py-1.5 rounded-full bg-emerald-500 text-white hover:bg-emerald-600 transition-all font-semibold shadow-sm">
+                    ✓ Confirm shipped
+                  </button>
+                </form>
+                <form method="post" action="/admin/sold-online/dismiss/{{ unit.id }}"
+                      onsubmit="return confirm('Dismiss as a false alarm? The flag clears and {{ unit.product.name }} stays in inventory, sellable at POS.')">
+                  <button class="text-xs text-slate-400 hover:text-slate-600 underline underline-offset-2 transition-colors">
+                    False alarm
+                  </button>
+                </form>
+              </div>
             </td>
           </tr>
           {% endfor %}

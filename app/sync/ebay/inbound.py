@@ -86,14 +86,28 @@ def _record_order(session: Session, order: EbayOrder):
     if not order.lines:
         logger.warning("ebay inbound: order %s had no lines", order.order_id)
         return None
-    lines = [
-        SaleLineInput(
-            inventory_unit_id=int(li.sku),
-            quantity=li.quantity,
-            unit_price=li.unit_price,
+    lines = []
+    for li in order.lines:
+        # SKU is our inventory_unit.id, but it's externally supplied — a
+        # non-numeric SKU must skip that line, not crash the whole poll.
+        try:
+            unit_id = int(li.sku)
+        except (ValueError, TypeError):
+            logger.warning(
+                "ebay inbound: order %s has non-numeric sku %r — skipping line",
+                order.order_id, li.sku,
+            )
+            continue
+        lines.append(
+            SaleLineInput(
+                inventory_unit_id=unit_id,
+                quantity=li.quantity,
+                unit_price=li.unit_price,
+            )
         )
-        for li in order.lines
-    ]
+    if not lines:
+        logger.warning("ebay inbound: order %s had no usable lines", order.order_id)
+        return None
     return record_sale(
         session,
         channel=Channel.EBAY.value,

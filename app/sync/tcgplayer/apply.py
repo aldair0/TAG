@@ -7,12 +7,20 @@ write-side logic here.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from sqlalchemy import delete as sql_delete, func, select
 from sqlalchemy.orm import Session
 
-from app.db.models import Channel, ChannelListing, InventoryUnit, Product, ProductKind
+from app.db.models import (
+    Channel,
+    ChannelListing,
+    InventoryUnit,
+    OutboundChange,
+    Product,
+    ProductKind,
+)
 from app.outbound import (
     enqueue_for_new_unit,
     enqueue_for_price_change,
@@ -22,12 +30,18 @@ from app.sales import SaleLineInput, record_sale
 from app.sync.tcgplayer.diff import IngestPlan
 from app.sync.tcgplayer.parser import IngestRow
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class ApplyResult:
     rows_inserted: int = 0
     rows_updated: int = 0
     sales_recorded: int = 0
+    # CSV-detected sales/removals skipped because the unit carries an active
+    # "sold online" flag — the manual Confirm/dismiss flow (or auto-expiry)
+    # owns that resolution, so the CSV rotation must not clear it first.
+    flags_preserved: int = 0
 
 
 def apply_plan(plan: IngestPlan, session: Session) -> ApplyResult:
@@ -122,6 +136,26 @@ def apply_plan(plan: IngestPlan, session: Session) -> ApplyResult:
         old_qty = unit.quantity_on_hand
         listing = _load_listing(session, unit.id, Channel.TCGPLAYER.value)
 
+        # For a decrease (a detected sale), re-read the unit so a sold-online
+        # flag the receiver thread committed moments ago is visible — this
+        # narrows the cross-thread TOCTOU on the preservation guard below.
+        if new_qty < old_qty:
+            session.refresh(unit)
+
+        if new_qty < old_qty and unit.is_sold_online:
+            # This unit is held by an active "sold online" flag. The manual
+            # Confirm/dismiss flow (or auto-expiry) owns this sale — don't let
+            # the CSV rotation record it and wipe the flag. Leave qty and the
+            # channel_listing untouched so the discrepancy is re-evaluated on
+            # the next sync once the flag has cleared.
+            logger.info(
+                "apply: preserved sold-online unit %d (%s): CSV qty %d < local %d "
+                "— awaiting manual confirm/dismiss or auto-expiry",
+                unit.id, unit.condition, new_qty, old_qty,
+            )
+            result.flags_preserved += 1
+            continue
+
         if new_qty < old_qty:
             sold = old_qty - new_qty
             recorded = record_sale(
@@ -189,6 +223,19 @@ def apply_plan(plan: IngestPlan, session: Session) -> ApplyResult:
     # nothing propagates to Shopify or eBay — TCGPlayer is the origin and
     # no fan-out is wanted. Delete the unit; orphaned products go too.
     for unit in plan.removed_units:
+        if unit.is_sold_online:
+            # Held by an active "sold online" flag — don't sell+delete it out
+            # from under the manual Confirm/dismiss flow. It stays absent from
+            # the CSV, so it reappears here each sync and is skipped until the
+            # flag clears, after which a later sync reconciles it normally.
+            logger.info(
+                "apply: preserved sold-online unit %d (absent from CSV) "
+                "— awaiting manual confirm/dismiss or auto-expiry",
+                unit.id,
+            )
+            result.flags_preserved += 1
+            continue
+
         if unit.quantity_on_hand > 0:
             record_sale(
                 session,

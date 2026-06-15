@@ -16,6 +16,14 @@ os.environ["DATABASE_URL"] = f"sqlite:///{_TEST_DB.as_posix()}"
 # out to real CSV parsing + image fetches on background threads.
 os.environ["TAG_DISABLE_SCHEDULER"] = "1"
 os.environ["TAG_DISABLE_INGEST"] = "1"
+# Keep the IMAP IDLE email receiver from spinning up during route tests
+# (the TestClient triggers the app lifespan). It also guards on the
+# disabled-by-default config flag, but be explicit.
+os.environ["TAG_DISABLE_EMAIL_RECEIVER"] = "1"
+# Don't write rotating log files into the repo during the test run.
+os.environ["TAG_DISABLE_FILE_LOG"] = "1"
+# Never send real support emails from the test suite.
+os.environ["TAG_DISABLE_ALERTS"] = "1"
 # Default to skipping the image-fetch block during direct run_ingest()
 # calls in tests. Otherwise the fetcher would lazy-create a real
 # httpx-backed MarketplaceSearchClient and hit the live API for any

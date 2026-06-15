@@ -71,6 +71,7 @@ class SyncCoordinator:
         self._queued = False
         self._idle = threading.Event()
         self._idle.set()
+        self._last_diag = 0.0  # throttle for auto diagnostic reports
 
     def request(self) -> RunStatus:
         with self._lock:
@@ -90,6 +91,24 @@ class SyncCoordinator:
         with self._lock:
             return {"running": self._running, "queued": self._queued}
 
+    def _maybe_send_diagnostic(self) -> None:
+        """Email a diagnostic report when a scheduled sync crashes unattended —
+        this is the prime place a code bug surfaces with no one watching.
+        Throttled so a persistent failure doesn't email every run."""
+        import time
+        import traceback
+
+        now = time.time()
+        if now - self._last_diag < 3600:
+            return
+        self._last_diag = now
+        try:
+            from app.diagnostics import send_diagnostic_report
+
+            send_diagnostic_report(error=traceback.format_exc(), reason="sync_failure")
+        except Exception:
+            logger.exception("failed to send sync-failure diagnostic")
+
     def wait_idle(self, timeout: float | None = None) -> bool:
         return self._idle.wait(timeout=timeout)
 
@@ -100,6 +119,7 @@ class SyncCoordinator:
                     self._run_fn()
                 except Exception:
                     logger.exception("Sync run failed inside coordinator")
+                    self._maybe_send_diagnostic()
                 with self._lock:
                     if not self._queued:
                         self._running = False
@@ -122,6 +142,12 @@ class SyncCoordinator:
 
 _scheduler = None  # type: ignore[var-annotated]
 _coordinator: SyncCoordinator | None = None
+_last_tick_at: float | None = None  # wall time of the most recent _tick()
+
+
+def last_tick_at() -> float | None:
+    """Wall-clock time (time.time()) of the last scheduler tick, or None."""
+    return _last_tick_at
 
 
 LIVE_CSV_PATH = "data/csv/tcgplayer_pricing.csv"
@@ -224,9 +250,14 @@ def _request_run() -> RunStatus:
 
 def _tick(session_factory=None) -> None:
     """One scheduler iteration. Gates on auto-sync flag + open hours."""
+    import time
+
     from app.config import settings
     from app.db.session import SessionLocal
     from app.settings_store import get_setting
+
+    global _last_tick_at
+    _last_tick_at = time.time()  # liveness heartbeat (set regardless of gates)
 
     if session_factory is None:
         session_factory = SessionLocal
@@ -262,6 +293,7 @@ def start_scheduler():
         return None
 
     from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.cron import CronTrigger
     from apscheduler.triggers.interval import IntervalTrigger
 
     from app.config import settings
@@ -274,16 +306,138 @@ def start_scheduler():
         coalesce=True,
         max_instances=1,
     )
+
+    # Maintenance: truncate the WAL hourly so it can't grow unbounded across a
+    # long uptime (one long-lived reader can otherwise starve auto-checkpoint).
+    s.add_job(
+        _maintenance_checkpoint,
+        IntervalTrigger(hours=1),
+        id="wal_checkpoint",
+        coalesce=True,
+        max_instances=1,
+    )
+
+    # Disk-space guard: warn (and, in Wave 3, alert) when the volume holding
+    # TAG_HOME runs low, before writes start failing.
+    s.add_job(
+        _disk_guard,
+        IntervalTrigger(hours=1),
+        id="disk_guard",
+        coalesce=True,
+        max_instances=1,
+    )
+
+    # Update check: notify when a newer release is published (no-op until
+    # GITHUB_REPO is configured).
+    if settings.update_check_enabled:
+        s.add_job(
+            _update_check,
+            IntervalTrigger(hours=settings.update_check_interval_hours),
+            id="update_check",
+            coalesce=True,
+            max_instances=1,
+        )
+
+    # End-of-day local backup with rolling retention. A malformed BACKUP_TIME
+    # must disable only this job, never abort scheduler startup (which would
+    # also take down auto-sync + WAL/disk maintenance).
+    if settings.backup_enabled:
+        try:
+            hh, mm = _parse_hhmm(settings.backup_time)
+            s.add_job(
+                _daily_backup,
+                CronTrigger(hour=hh, minute=mm),
+                id="daily_backup",
+                coalesce=True,
+                max_instances=1,
+            )
+        except Exception:
+            logger.exception(
+                "Invalid BACKUP_TIME=%r — daily backup disabled (other jobs unaffected)",
+                settings.backup_time,
+            )
+
     s.start()
     _scheduler = s
     logger.info(
-        "Scheduler started: tick every %d min, hours %s-%s %s",
+        "Scheduler started: tick every %d min, hours %s-%s %s; backup=%s @ %s, retain %dd",
         settings.tcgplayer_sync_interval_min,
         settings.store_open_time,
         settings.store_close_time,
         settings.store_timezone,
+        "on" if settings.backup_enabled else "off",
+        settings.backup_time,
+        settings.backup_retention_days,
     )
     return s
+
+
+def _parse_hhmm(s: str) -> tuple[int, int]:
+    h, m = s.split(":")
+    return int(h), int(m)
+
+
+def _maintenance_checkpoint() -> None:
+    """Hourly WAL truncate. Swallows errors so a maintenance hiccup never
+    propagates out of the scheduler thread."""
+    try:
+        from app.db.base import checkpoint_wal
+
+        checkpoint_wal()
+    except Exception:
+        logger.exception("WAL checkpoint failed")
+
+
+def _daily_backup() -> None:
+    """End-of-day local backup. Errors are logged + alerted, never raised."""
+    try:
+        from app.backup import run_backup
+
+        run_backup()
+    except Exception as e:
+        logger.exception("Daily backup failed")
+        from app.alerts import send_alert
+
+        send_alert(
+            "Daily backup FAILED",
+            f"The end-of-day local backup did not complete: {type(e).__name__}: {e}\n"
+            "Inventory/sales history is not being backed up — investigate the disk "
+            "and the backups folder.",
+            key="backup_failed",
+        )
+
+
+def _update_check() -> None:
+    """Notify if a newer release is available. Errors logged, never raised."""
+    try:
+        from app.updater import notify_if_update
+
+        notify_if_update()
+    except Exception:
+        logger.exception("update check failed")
+
+
+_DISK_WARN_GB = 2.0
+
+
+def _disk_guard() -> None:
+    """Warn when free disk drops below the threshold. (Wave 3 will also alert.)"""
+    try:
+        from app.maintenance import disk_free_gb
+
+        free = disk_free_gb()
+        if free < _DISK_WARN_GB:
+            logger.warning("disk guard: only %.2f GB free on TAG_HOME volume", free)
+            from app.alerts import send_alert
+
+            send_alert(
+                "Low disk space",
+                f"Only {free:.2f} GB free on the TAG_HOME volume. When it fills, "
+                "database writes, backups, and logging all fail. Free up space.",
+                key="disk_low",
+            )
+    except Exception:
+        logger.exception("disk guard check failed")
 
 
 def stop_scheduler() -> None:

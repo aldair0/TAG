@@ -77,3 +77,44 @@ def test_decrypt_corrupted_blob_raises():
 
     with pytest.raises(DpapiDecryptError):
         decrypt_secret("dpapi:v1:not-actually-base64!@#$")
+
+
+# ---- can_decrypt_envelope / can_unprotect (machine-move probes) --------
+
+
+def test_can_decrypt_envelope_plaintext_and_empty():
+    from app.security.dpapi import can_decrypt_envelope
+
+    assert can_decrypt_envelope("plain-old-value") is True
+    assert can_decrypt_envelope("") is False
+    assert can_decrypt_envelope(None) is False
+
+
+@windows_only
+def test_can_decrypt_envelope_native_blob_true():
+    from app.security.dpapi import can_decrypt_envelope
+
+    assert can_decrypt_envelope(encrypt_secret("session-cookie")) is True
+
+
+@windows_only
+def test_can_decrypt_envelope_foreign_blob_false():
+    """A well-formed dpapi:v1: envelope whose ciphertext this machine
+    can't unprotect (the post-copy state) reads as not-decryptable —
+    without raising."""
+    import base64
+
+    from app.security.dpapi import PREFIX, can_decrypt_envelope
+
+    foreign = PREFIX + base64.b64encode(b"\x01\x02\x03not-our-key").decode("ascii")
+    assert can_decrypt_envelope(foreign) is False
+
+
+@windows_only
+def test_can_unprotect_round_trip_and_foreign():
+    from app.security.dpapi import _crypt_protect, can_unprotect
+
+    native = _crypt_protect(b"chrome-os_crypt-key")
+    assert can_unprotect(native) is True
+    assert can_unprotect(b"\x00\x01\x02 garbage from another machine") is False
+    assert can_unprotect(b"") is False

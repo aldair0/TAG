@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import hmac as hmac_lib
+import re
 import secrets
 from urllib.parse import urlencode
 
@@ -34,6 +35,16 @@ _SCOPES = (
     "read_draft_orders,write_draft_orders,"
     "read_locations"
 )
+
+
+# Shopify shop domains are always "<store>.myshopify.com". Validating against
+# this BEFORE interpolating `shop` into any URL closes the SSRF/open-redirect
+# (the server must never POST its client_secret to an attacker-chosen host).
+_SHOP_RE = re.compile(r"^[a-z0-9][a-z0-9-]*\.myshopify\.com$")
+
+
+def _valid_shop(shop: str) -> bool:
+    return bool(_SHOP_RE.match((shop or "").strip().lower()))
 
 
 def _api_key(session: Session) -> str:
@@ -67,13 +78,17 @@ def shopify_install(
     session: Session = Depends(get_session),
 ) -> RedirectResponse:
     """Kick off the OAuth flow for a given shop domain."""
+    shop = (shop or "").strip().lower()
+    if not _valid_shop(shop):
+        return RedirectResponse(url="/admin/settings/?shopify_error=invalid_shop")
+
     api_key = _api_key(session)
     if not api_key:
         return RedirectResponse(url="/admin/settings/?shopify_error=no_api_key")
 
     nonce = secrets.token_hex(16)
     set_setting(session, "shopify_oauth_nonce", nonce)
-    set_setting(session, "shopify_oauth_shop", shop.strip().lower())
+    set_setting(session, "shopify_oauth_shop", shop)
     session.commit()
 
     redirect_uri = str(request.base_url).rstrip("/") + "/auth/shopify/callback"
@@ -98,17 +113,27 @@ def shopify_callback(
     session: Session = Depends(get_session),
 ) -> RedirectResponse:
     """Handle Shopify's OAuth redirect, exchange code for token."""
-    # Validate state matches what we sent
+    # The shop host must be a real *.myshopify.com domain BEFORE we POST our
+    # client_secret to it (SSRF/open-redirect guard — S1).
+    shop = (shop or "").strip().lower()
+    if not _valid_shop(shop):
+        return RedirectResponse(url="/admin/settings/?shopify_error=invalid_shop")
+
+    # Validate state matches what we sent (and that we have one)
     stored_nonce = get_setting(session, "shopify_oauth_nonce") or ""
     if not state or state != stored_nonce:
         return RedirectResponse(url="/admin/settings/?shopify_error=invalid_state")
 
-    # Validate HMAC when secret is available
+    # HMAC is mandatory — the secret must be configured and the signature must
+    # verify. A mismatch or missing secret is a hard failure, never "proceed
+    # anyway" (S2).
     secret = _api_secret(session)
-    if secret:
-        query_params = dict(request.query_params)
-        if not _validate_hmac(dict(query_params), secret):
-            logger.warning("Shopify OAuth: HMAC mismatch — proceeding anyway (dev mode)")
+    if not secret:
+        logger.error("Shopify OAuth callback: no API secret configured — refusing")
+        return RedirectResponse(url="/admin/settings/?shopify_error=no_secret")
+    if not _validate_hmac(dict(request.query_params), secret):
+        logger.warning("Shopify OAuth: HMAC verification FAILED — rejecting callback")
+        return RedirectResponse(url="/admin/settings/?shopify_error=bad_hmac")
 
     # Exchange code for access token
     api_key = _api_key(session)
@@ -118,10 +143,11 @@ def shopify_callback(
             json={"client_id": api_key, "client_secret": secret, "code": code},
             timeout=10.0,
         )
-        logger.info("Token exchange status: %s body: %s", r.status_code, r.text[:300])
+        # Do NOT log the response body — it contains the access token.
+        logger.info("Shopify token exchange status: %s", r.status_code)
         r.raise_for_status()
         token = r.json().get("access_token", "")
-    except Exception as exc:
+    except Exception:
         logger.exception("Token exchange failed")
         return RedirectResponse(url="/admin/settings/?shopify_error=token_exchange_failed")
 

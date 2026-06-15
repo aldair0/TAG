@@ -20,6 +20,27 @@
   {% endif %}
 
   <!-- Network / tablet access -->
+  <!-- Tech support -->
+  <div class="bg-white rounded-2xl border border-sky-100 shadow-sm p-5 space-y-4 anim-2">
+    <div class="flex items-center justify-between gap-3">
+      <div>
+        <h2 class="font-bold text-slate-700 text-base">Tech support</h2>
+        <p class="text-xs text-slate-400 mt-0.5">If something looks wrong, email a diagnostic report (logs + system health) to tech support.</p>
+      </div>
+      {% set diag = request.query_params.get('diag') %}
+      {% if diag == 'sent' %}
+      <span class="text-emerald-700 text-sm font-semibold bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full whitespace-nowrap">✓ Report sent</span>
+      {% elif diag in ('logged', 'error') %}
+      <span class="text-amber-700 text-sm font-semibold bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-full whitespace-nowrap">Saved locally</span>
+      {% endif %}
+    </div>
+    <form method="post" action="/admin/settings/diagnostics">
+      <button class="bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold px-4 py-2 rounded-xl transition-all">
+        Send diagnostics to support
+      </button>
+    </form>
+  </div>
+
   <div class="bg-white rounded-2xl border border-sky-100 shadow-sm p-5 space-y-4 anim-2">
     <div class="flex items-center justify-between">
       <div>

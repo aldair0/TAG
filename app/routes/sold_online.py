@@ -1,10 +1,19 @@
 """Admin routes for the "Sold Online" flag system.
 
 When a unit is sold on an external channel (TCGPlayer, eBay) before the
-CSV sync updates inventory, an out-of-band signal (currently: manual action;
-future: email webhook) marks it as "sold online". The flag blocks POS sale
-and auto-expires at the end of the calendar day *following* the flag date
-(store timezone). Staff can also dismiss it manually.
+CSV sync updates inventory, an out-of-band signal — the email receiver
+(:mod:`app.inbound_email`) or a manual action — marks it as "sold online".
+The flag blocks POS sale and auto-expires at the end of the calendar day
+*following* the flag date (store timezone).
+
+Staff resolve a flag two ways:
+- **Confirm shipped** — the sale was real and the card is going out. This
+  records the sale through :func:`record_sale` (decrement + fan-out to the
+  other channels + audit), exactly like the CSV sync would, then clears the
+  flag. Because it lowers local qty to match what TCGPlayer will export, the
+  next CSV diff sees no change and does not double-count.
+- **Dismiss (false alarm)** — the flag was wrong (e.g. a bad name match);
+  clear it with no inventory change so the unit is sellable again.
 """
 
 from __future__ import annotations
@@ -20,23 +29,16 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.config import settings
-from app.db.models import InventoryUnit, Product
+from app.db.models import Channel, InventoryUnit, Product
 from app.db.session import get_session
+from app.inbound_email import expiry_for_flag as _expiry_for_flag
 from app.paths import templates_dir
+from app.sales import SaleLineInput, record_sale
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(templates_dir()))
-
-
-def _expiry_for_flag(flagged_at: datetime) -> datetime:
-    """Return UTC datetime = end of the calendar day *after* flagged_at (store tz)."""
-    tz = ZoneInfo(settings.store_timezone)
-    local = flagged_at.astimezone(tz) if flagged_at.tzinfo else flagged_at.replace(tzinfo=timezone.utc).astimezone(tz)
-    # midnight at the start of the day-after-tomorrow == end of tomorrow
-    expiry_local = datetime(local.year, local.month, local.day) + timedelta(days=2)
-    return expiry_local.replace(tzinfo=tz).astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def active_sold_online_count(session: Session) -> int:
@@ -141,17 +143,58 @@ def flag_unit(
     return RedirectResponse(url="/admin/sold-online/", status_code=303)
 
 
+@router.post("/confirm/{unit_id}", response_class=HTMLResponse)
+def confirm_unit(
+    unit_id: int,
+    quantity: int = Form(1),
+    session: Session = Depends(get_session),
+) -> RedirectResponse:
+    """Confirm the online sale shipped: remove the unit from inventory.
+
+    Records the sale through :func:`record_sale` so it decrements stock,
+    fans the qty change out to the *other* channels (eBay + Shopify — never
+    back to the originating TCGPlayer listing), and leaves an audit row.
+    Then the sold-online flag is fully cleared so the item leaves this page;
+    the completed sale lives in the Sales records.
+
+    ``channel`` defaults to TCGPlayer because that's the only source the
+    email receiver produces today. (A manual/eBay flag would need its source
+    channel stored to fan out in the right direction — see TODO.)
+    """
+    unit = session.get(InventoryUnit, unit_id)
+    if unit is None:
+        return RedirectResponse(url="/admin/sold-online/", status_code=303)
+
+    qty = max(1, quantity)
+    recorded = record_sale(
+        session,
+        channel=Channel.TCGPLAYER.value,
+        lines=[SaleLineInput(inventory_unit_id=unit.id, quantity=qty)],
+        notes="Confirmed shipped from Sold Online page",
+    )
+    # Clear the flag entirely (both timestamps) so a shipped item drops off
+    # the page — its record now lives in Sales, not here.
+    unit.sold_online_at = None
+    unit.sold_online_until = None
+    session.commit()
+    logger.info(
+        "sold_online: confirmed shipped unit %d (qty=%d, oversell=%s)",
+        unit_id, qty, recorded.had_oversell,
+    )
+    return RedirectResponse(url="/admin/sold-online/", status_code=303)
+
+
 @router.post("/dismiss/{unit_id}", response_class=HTMLResponse)
 def dismiss_unit(
     unit_id: int,
     session: Session = Depends(get_session),
 ) -> RedirectResponse:
-    """Manually dismiss the sold-online flag — unit is sellable again immediately."""
+    """Dismiss a false-alarm flag — no inventory change; unit sellable again."""
     unit = session.get(InventoryUnit, unit_id)
     if unit is not None:
         unit.sold_online_until = None
         session.commit()
-        logger.info("sold_online: dismissed unit %d", unit_id)
+        logger.info("sold_online: dismissed unit %d (false alarm)", unit_id)
     return RedirectResponse(url="/admin/sold-online/", status_code=303)
 
 
@@ -193,6 +236,12 @@ def email_signal(
 
     Returns JSON: {"flagged": [unit_id, ...], "unmatched": true/false}
     """
+    # Optional shared-secret gate (A1). Open by default for the trusted LAN;
+    # when SIGNAL_TOKEN is configured, require a matching header.
+    if settings.signal_token:
+        if request.headers.get("X-Signal-Token") != settings.signal_token:
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+
     like = card_name.strip()
     if not like:
         return JSONResponse({"error": "card_name is required"}, status_code=400)

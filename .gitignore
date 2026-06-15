@@ -48,6 +48,16 @@ Thumbs.db
 *.log
 logs/
 
+# --- Local DB backups (TAG_HOME/backups) ---
+backups/
+
+# --- TLS cert + key (TAG_HOME/certs) ---
+certs/
+*.pem
+
+# --- Diagnostic reports (TAG_HOME/diagnostics) ---
+diagnostics/
+
 # --- Claude Code local state ---
 .claude/settings.local.json
 .claude/scheduled_tasks.lock

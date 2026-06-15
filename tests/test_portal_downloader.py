@@ -15,8 +15,11 @@ from unittest.mock import patch
 import pytest
 
 from app.sync.tcgplayer.portal_downloader import (
+    _clear_profile_locks,
     _parse_cookies,
+    _profile_lock_holders,
     archive_and_replace,
+    ensure_profile_free,
     find_browser_executable,
 )
 
@@ -195,3 +198,193 @@ def test_parse_cookies_handles_value_with_equals_sign():
     assert c["name"] == "token"
     assert c["value"] == "abc==.def"
 
+
+
+# ---- profile-lock self-healing ----------------------------------------
+#
+# Root cause of the "still can't log in" crash: a second browser launched
+# against a --user-data-dir another browser already holds dies with
+# "not connected to DevTools". ensure_profile_free() evicts the holder and
+# clears stale locks before each driver launch. The live process-kill needs
+# a real browser (manual smoke); the parsing / file / orchestration logic
+# below is deterministic and CI-safe.
+
+
+def test_clear_profile_locks_removes_lock_files(tmp_path: Path):
+    for name in ("lockfile", "SingletonLock", "SingletonCookie", "SingletonSocket"):
+        (tmp_path / name).write_text("x")
+    (tmp_path / "keep.txt").write_text("keep")
+
+    _clear_profile_locks(tmp_path)
+
+    assert not (tmp_path / "lockfile").exists()
+    assert not (tmp_path / "SingletonLock").exists()
+    assert (tmp_path / "keep.txt").exists()  # untouched
+
+
+def test_clear_profile_locks_noop_when_absent(tmp_path: Path):
+    _clear_profile_locks(tmp_path)  # must not raise on a clean dir
+
+
+def test_profile_lock_holders_matches_only_our_profile(tmp_path: Path, monkeypatch):
+    """CIM output lists three browsers; only the one whose --user-data-dir
+    resolves to OUR profile is returned — never the user's everyday Chrome."""
+    import subprocess as sp
+
+    ours = tmp_path / "chrome_profile"
+    ours.mkdir()
+    other = tmp_path / "someone_elses"
+    other.mkdir()
+
+    fake_out = "\n".join(
+        [
+            f'4242\tchrome.exe --user-data-dir={ours.resolve()} about:blank',
+            f'9999\tchrome.exe --user-data-dir={other.resolve()} about:blank',
+            "5555\tchrome.exe --type=renderer",  # no user-data-dir
+        ]
+    )
+
+    class _R:
+        stdout = fake_out
+
+    monkeypatch.setattr("sys.platform", "win32")
+    monkeypatch.setattr(sp, "run", lambda *a, **k: _R())
+
+    assert _profile_lock_holders(ours) == [4242]
+
+
+def test_profile_lock_holders_handles_quoted_path(tmp_path: Path, monkeypatch):
+    import subprocess as sp
+
+    ours = tmp_path / "chrome profile with spaces"
+    ours.mkdir()
+
+    class _R:
+        stdout = f'7000\tchrome.exe "--user-data-dir={ours.resolve()}" about:blank'
+
+    monkeypatch.setattr("sys.platform", "win32")
+    monkeypatch.setattr(sp, "run", lambda *a, **k: _R())
+
+    assert _profile_lock_holders(ours) == [7000]
+
+
+def test_profile_lock_holders_empty_off_windows(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("sys.platform", "linux")
+    assert _profile_lock_holders(tmp_path) == []
+
+
+def test_ensure_profile_free_evicts_then_clears(tmp_path: Path, monkeypatch):
+    """Holders are terminated, then lock files cleared; returns the count."""
+    import app.sync.tcgplayer.portal_downloader as pd
+
+    (tmp_path / "lockfile").write_text("x")
+    killed: list[int] = []
+
+    monkeypatch.setattr(pd, "_profile_lock_holders", lambda p: [111, 222])
+    monkeypatch.setattr(
+        pd.subprocess,
+        "run",
+        lambda args, **k: killed.append(int(args[2])),
+    )
+    monkeypatch.setattr(pd.time, "sleep", lambda *_: None)
+
+    n = ensure_profile_free(tmp_path)
+
+    assert n == 2
+    assert killed == [111, 222]
+    assert not (tmp_path / "lockfile").exists()
+
+
+def test_ensure_profile_free_noop_when_free(tmp_path: Path, monkeypatch):
+    import app.sync.tcgplayer.portal_downloader as pd
+
+    monkeypatch.setattr(pd, "_profile_lock_holders", lambda p: [])
+    assert ensure_profile_free(tmp_path) == 0
+
+
+# ---- headless UA cloaking (anti-bot-detection) ------------------------
+#
+# Headless Chrome/Edge advertise "HeadlessChrome" in the UA, which trips
+# Cloudflare's captcha on the seller portal. UC 3.5.5 can't cloak it for
+# Chrome 149, so _cloak_headless_ua overrides it via CDP. Verified live
+# against a real browser in the audit; these pin the pure logic.
+
+
+class _UaDriver:
+    def __init__(self, ua: str):
+        self._ua = ua
+        self.override = None
+
+    def execute_script(self, _):
+        return self._ua
+
+    def execute_cdp_cmd(self, cmd, params):
+        assert cmd == "Network.setUserAgentOverride"
+        self.override = params["userAgent"]
+
+
+def test_cloak_headless_ua_strips_headless():
+    from app.sync.tcgplayer.portal_downloader import _cloak_headless_ua
+
+    d = _UaDriver(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) HeadlessChrome/149.0.0.0 Safari/537.36"
+    )
+    _cloak_headless_ua(d)
+    assert d.override is not None
+    assert "Headless" not in d.override
+    assert "Chrome/149.0.0.0" in d.override
+
+
+def test_cloak_headless_ua_noop_when_clean():
+    from app.sync.tcgplayer.portal_downloader import _cloak_headless_ua
+
+    d = _UaDriver(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
+    )
+    _cloak_headless_ua(d)
+    assert d.override is None  # already clean — no override issued
+
+
+def test_cloak_headless_ua_swallows_cdp_errors():
+    from app.sync.tcgplayer.portal_downloader import _cloak_headless_ua
+
+    class _Boom(_UaDriver):
+        def execute_cdp_cmd(self, *a, **k):
+            raise RuntimeError("cdp down")
+
+    # Must not raise — UA cloaking is best-effort.
+    _cloak_headless_ua(_Boom("HeadlessChrome/149.0.0.0"))
+
+
+# ---- _chrome_major_version --------------------------------------------
+
+
+def test_chrome_major_version_parses_product_version(tmp_path, monkeypatch):
+    import app.sync.tcgplayer.portal_downloader as pd
+
+    class _R:
+        stdout = "149.0.7827.115\n"
+
+    monkeypatch.setattr("sys.platform", "win32")
+    monkeypatch.setattr(pd.subprocess, "run", lambda *a, **k: _R())
+    assert pd._chrome_major_version(tmp_path / "chrome.exe") == 149
+
+
+def test_chrome_major_version_none_off_windows(tmp_path, monkeypatch):
+    import app.sync.tcgplayer.portal_downloader as pd
+
+    monkeypatch.setattr("sys.platform", "linux")
+    assert pd._chrome_major_version(tmp_path / "chrome.exe") is None
+
+
+def test_chrome_major_version_none_on_garbage(tmp_path, monkeypatch):
+    import app.sync.tcgplayer.portal_downloader as pd
+
+    class _R:
+        stdout = "not-a-version\n"
+
+    monkeypatch.setattr("sys.platform", "win32")
+    monkeypatch.setattr(pd.subprocess, "run", lambda *a, **k: _R())
+    assert pd._chrome_major_version(tmp_path / "chrome.exe") is None

@@ -170,6 +170,11 @@ def run_ingest(
         if parse_errors:
             run.error = "\n".join(parse_errors[:10])
 
+        # Finalize inside the try so a commit failure (lock/IntegrityError) is
+        # caught and recorded, not propagated uncaught.
+        run.ended_at = datetime.now(timezone.utc)
+        session.commit()
+
     except Exception as e:
         logger.exception("Ingest failed")
         session.rollback()
@@ -180,8 +185,6 @@ def run_ingest(
         session.commit()
         raise
 
-    run.ended_at = datetime.now(timezone.utc)
-    session.commit()
     return run
 
 

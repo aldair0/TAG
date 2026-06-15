@@ -73,6 +73,7 @@ def launch_login_window(
     chrome_binary: Path,
     profile_dir: Path,
     target_url: str = LOGIN_URL,
+    remote_debugging_port: int | None = None,
 ) -> subprocess.Popen:
     """Spawn ``chrome.exe`` detached, pointed at our profile dir and
     the TCGPlayer login URL. Returns the Popen so callers can poll
@@ -80,6 +81,15 @@ def launch_login_window(
 
     Detached so the HTTP request that triggered this returns
     immediately. The Chrome window outlives the request.
+
+    This is a **plain** Chrome — no Selenium, no automation flags — so
+    the login page sees an ordinary browser and the hCaptcha/Cloudflare
+    challenge behaves normally for a human. When ``remote_debugging_port``
+    is given, we add ``--remote-debugging-port`` so a caller can read the
+    live (in-memory) cookies over DevTools without driving the page; the
+    port is invisible to page JS, so it doesn't change captcha behaviour.
+    A non-default ``--user-data-dir`` (which we always pass) is required
+    for Chrome 136+ to honour the debugging port.
     """
     profile_dir.mkdir(parents=True, exist_ok=True)
     args = [
@@ -88,8 +98,11 @@ def launch_login_window(
         "--no-first-run",
         "--no-default-browser-check",
         "--profile-directory=Default",
-        target_url,
     ]
+    if remote_debugging_port is not None:
+        args.append(f"--remote-debugging-port={remote_debugging_port}")
+        args.append("--remote-allow-origins=*")
+    args.append(target_url)
     logger.info("Launching login window: %s", " ".join(args))
 
     creationflags = 0
@@ -124,7 +137,19 @@ def snag_auth_cookies(
     Best-effort: failure here doesn't break anything — the encrypted
     setting copy is just redundancy / a keep-fresh mechanism.
     """
-    from app.sync.tcgplayer.portal_downloader import _build_driver, _parse_cookies
+    from app.sync.tcgplayer.portal_downloader import (
+        _BROWSER_LOCK,
+        _build_driver,
+        _parse_cookies,
+    )
+
+    # Don't launch a competing browser while a CSV download owns the
+    # profile — that would evict the download's window (via
+    # ensure_profile_free) and kill it mid-flight. Skip this snag cycle;
+    # the next poll retries once the download has released the lock.
+    if not _BROWSER_LOCK.acquire(blocking=False):
+        logger.info("snag_auth_cookies skipped: a portal browser session is active")
+        return None
 
     download_dir = Path("data/csv/_incoming")
     download_dir.mkdir(parents=True, exist_ok=True)
@@ -155,6 +180,7 @@ def snag_auth_cookies(
                 driver.quit()
             except Exception:
                 pass
+        _BROWSER_LOCK.release()
 
     out: dict[str, str] = {}
     for c in cookies:

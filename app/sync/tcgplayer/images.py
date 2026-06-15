@@ -12,10 +12,28 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+# SSRF guard: image URLs come from an untrusted CSV (`Photo URL`). Only fetch
+# https URLs on TCGPlayer's own domains — never internal hosts / metadata IPs.
+_ALLOWED_HOST_SUFFIX = ".tcgplayer.com"
+# Memory guard: never buffer an unbounded response body.
+_MAX_IMAGE_BYTES = 10 * 1024 * 1024
+
+
+def _is_allowed_image_url(url: str) -> bool:
+    try:
+        p = urlparse(url)
+    except Exception:
+        return False
+    if p.scheme != "https":
+        return False
+    host = (p.hostname or "").lower()
+    return host == "tcgplayer.com" or host.endswith(_ALLOWED_HOST_SUFFIX)
 
 
 class ImageCache:
@@ -23,7 +41,9 @@ class ImageCache:
         self.root = root
         self.root.mkdir(parents=True, exist_ok=True)
         self._owns_client = client is None
-        self._client = client or httpx.Client(timeout=10.0, follow_redirects=True)
+        # follow_redirects=False: a redirect could otherwise bounce an
+        # allow-listed URL to an internal host, defeating the SSRF guard.
+        self._client = client or httpx.Client(timeout=10.0, follow_redirects=False)
 
     def close(self) -> None:
         if self._owns_client:
@@ -55,13 +75,17 @@ class ImageCache:
         """
         if local_path.exists() and local_path.stat().st_size > 0:
             return local_path
+        if not _is_allowed_image_url(source_url):
+            logger.warning("Image fetch refused (URL not allowed): %s", source_url)
+            return None
         try:
             local_path.parent.mkdir(parents=True, exist_ok=True)
-            r = self._client.get(source_url)
-            r.raise_for_status()
-            local_path.write_bytes(r.content)
+            data = self._download_capped(source_url)
+            if data is None:
+                return None
+            local_path.write_bytes(data)
             return local_path
-        except Exception:
+        except httpx.HTTPError:
             logger.warning(
                 "Image fetch failed for path=%s url=%s",
                 local_path,
@@ -69,3 +93,24 @@ class ImageCache:
                 exc_info=True,
             )
             return None
+
+    def _download_capped(self, url: str) -> bytes | None:
+        """Stream the body, enforcing an image content-type and a hard byte
+        cap so a hostile/oversized response can't exhaust memory."""
+        with self._client.stream("GET", url) as r:
+            r.raise_for_status()
+            ctype = r.headers.get("content-type", "").lower()
+            if not ctype.startswith("image/"):
+                logger.warning("Image fetch refused (content-type=%r): %s", ctype, url)
+                return None
+            declared = r.headers.get("content-length")
+            if declared and declared.isdigit() and int(declared) > _MAX_IMAGE_BYTES:
+                logger.warning("Image fetch refused (too large: %s bytes): %s", declared, url)
+                return None
+            buf = bytearray()
+            for chunk in r.iter_bytes():
+                buf.extend(chunk)
+                if len(buf) > _MAX_IMAGE_BYTES:
+                    logger.warning("Image fetch aborted (exceeded %d bytes): %s", _MAX_IMAGE_BYTES, url)
+                    return None
+            return bytes(buf)

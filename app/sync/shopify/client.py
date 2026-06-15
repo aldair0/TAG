@@ -18,7 +18,7 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 import httpx
 
@@ -118,14 +118,46 @@ class RealShopifyClient(ShopifyClient):
     def _url(self, path: str) -> str:
         return f"https://{self._domain}/admin/api/{_API_VERSION}/{path}"
 
+    _MAX_ATTEMPTS = 3
+    _MAX_BACKOFF_SEC = 30.0
+
     def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
-        """Make an API call with one automatic retry on 429 rate-limit."""
-        r = self._client.request(method, self._url(path), **kwargs)
-        if r.status_code == 429:
-            retry_after = float(r.headers.get("Retry-After", _RATE_LIMIT_RETRY_AFTER))
-            logger.warning("Shopify rate limit hit — waiting %.1fs", retry_after)
-            time.sleep(retry_after)
-            r = self._client.request(method, self._url(path), **kwargs)
+        """API call with bounded exponential backoff on 429/5xx/network errors.
+
+        ``Retry-After`` is honored but clamped, so a hostile/buggy header can't
+        pin the thread for hours.
+        """
+        url = self._url(path)
+        r: httpx.Response | None = None
+        for attempt in range(self._MAX_ATTEMPTS):
+            try:
+                r = self._client.request(method, url, **kwargs)
+            except httpx.HTTPError:
+                if attempt == self._MAX_ATTEMPTS - 1:
+                    raise
+                time.sleep(min(2.0 ** attempt, self._MAX_BACKOFF_SEC))
+                continue
+
+            if r.status_code == 429 or 500 <= r.status_code < 600:
+                if attempt == self._MAX_ATTEMPTS - 1:
+                    break
+                retry_after = _RATE_LIMIT_RETRY_AFTER
+                hdr = r.headers.get("Retry-After")
+                if hdr:
+                    try:
+                        retry_after = float(hdr)
+                    except ValueError:
+                        pass
+                backoff = min(max(retry_after, 2.0 ** attempt), self._MAX_BACKOFF_SEC)
+                logger.warning(
+                    "Shopify %s %s → %d; retrying in %.1fs (attempt %d/%d)",
+                    method, path, r.status_code, backoff, attempt + 1, self._MAX_ATTEMPTS,
+                )
+                time.sleep(backoff)
+                continue
+            break
+
+        assert r is not None
         if r.status_code == 401:
             raise RuntimeError(
                 "Shopify API: 401 Unauthorized — check the Admin API token in Settings."
@@ -416,10 +448,25 @@ class ShopifyOrder:
     lines: list[ShopifyOrderLine]
 
 
+def _money(value) -> Decimal | None:
+    """Parse an external money field without crashing the whole batch on a
+    malformed value."""
+    if value in (None, ""):
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
+        return None
+
+
 def _parse_shopify_order(raw: dict) -> "ShopifyOrder":
     from datetime import datetime, timezone
 
-    created_raw = raw.get("created_at", "")
+    order_id = raw.get("id")
+    if order_id is None:
+        raise ValueError("Shopify order missing 'id'")
+
+    created_raw = raw.get("created_at", "") or ""
     try:
         created_at = datetime.fromisoformat(created_raw.replace("Z", "+00:00"))
     except Exception:
@@ -428,18 +475,22 @@ def _parse_shopify_order(raw: dict) -> "ShopifyOrder":
     lines = []
     for li in raw.get("line_items", []):
         vid = li.get("variant_id")
+        try:
+            qty = int(li.get("quantity") or 1)
+        except (ValueError, TypeError):
+            qty = 1
         lines.append(ShopifyOrderLine(
             variant_id=int(vid) if vid else None,
-            quantity=int(li.get("quantity") or 1),
-            unit_price=Decimal(str(li.get("price") or "0.00")),
+            quantity=qty,
+            unit_price=_money(li.get("price")) or Decimal("0.00"),
             title=str(li.get("title") or ""),
         ))
 
     return ShopifyOrder(
-        order_id=str(raw["id"]),
+        order_id=str(order_id),
         created_at=created_at,
-        subtotal=Decimal(str(raw["subtotal_price"])) if raw.get("subtotal_price") else None,
-        tax=Decimal(str(raw["total_tax"])) if raw.get("total_tax") else None,
-        total=Decimal(str(raw["total_price"])) if raw.get("total_price") else None,
+        subtotal=_money(raw.get("subtotal_price")),
+        tax=_money(raw.get("total_tax")),
+        total=_money(raw.get("total_price")),
         lines=lines,
     )

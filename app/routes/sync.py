@@ -229,16 +229,24 @@ def sync_run_tcgplayer() -> RedirectResponse:
 def open_portal_login() -> RedirectResponse:
     """Customer-facing "Sign in to TCGPlayer" button.
 
-    Spawns Chrome (detached) pointed at our profile dir + TCGPlayer's
-    login URL. Returns immediately with a 303 — the Chrome window
-    outlives the HTTP request and the customer logs in there. The
-    auth_status endpoint polls the profile to detect when login
-    completes and surfaces the result in the admin UI.
+    Opens a real, *Selenium-driven* Chrome window and, on a background
+    thread, waits for the customer to finish logging in — then captures
+    the live session cookies (incl. the in-memory ``TCGAuthTicket_Production``
+    session cookie, which is never written to disk) and persists them for
+    headless reuse. Returns a 303 immediately; the auth_status poll flips
+    to "connected" once the cookies land.
+
+    A plain detached window can't be used here: the auth ticket is a
+    session cookie, so it must be read from the same live driver the user
+    authenticated in — closing a plain window would simply discard it.
     """
-    from app.sync.tcgplayer.portal_auth import launch_login_window
+    import threading
+
+    from app.sync.tcgplayer.auth_health import ensure_healthy
     from app.sync.tcgplayer.portal_downloader import (
         PROFILE_DIR,
         find_browser_executable,
+        login_and_capture,
     )
 
     browser = find_browser_executable()
@@ -246,13 +254,18 @@ def open_portal_login() -> RedirectResponse:
         return RedirectResponse(
             url="/admin/sync/?login_error=no_browser", status_code=303
         )
-    try:
-        launch_login_window(chrome_binary=browser, profile_dir=PROFILE_DIR)
-    except Exception:
-        logger.exception("portal_login: failed to launch browser")
-        return RedirectResponse(
-            url="/admin/sync/?login_error=launch_failed", status_code=303
-        )
+
+    # Self-heal before opening the window: if the profile/backup came from
+    # another machine, quarantine + clear them now so the user logs into a
+    # clean profile keyed to THIS machine.
+    ensure_healthy(profile_dir=PROFILE_DIR)
+
+    # Drive login + live cookie capture on a background thread so the HTTP
+    # request returns at once. login_and_capture holds the browser lock for
+    # its duration, so the auth_status snag won't collide with it.
+    threading.Thread(
+        target=login_and_capture, name="tcg-login-capture", daemon=True
+    ).start()
     return RedirectResponse(url="/admin/sync/?login_opened=1", status_code=303)
 
 
@@ -265,6 +278,7 @@ def auth_status_partial(
     few seconds while a login window is open. Renders one of three
     states based on the cookie's presence in the profile dir AND the
     encrypted ``app_setting`` mirror."""
+    from app.sync.tcgplayer.auth_health import AuthHealth, ensure_healthy
     from app.sync.tcgplayer.portal_auth import (
         AUTH_COOKIE_NAME,
         profile_has_auth_cookie,
@@ -274,6 +288,13 @@ def auth_status_partial(
         PROFILE_DIR,
         find_browser_executable,
     )
+
+    # Self-heal on every poll: if the credentials were carried over from
+    # another machine they get cleared/quarantined here, and the pill
+    # shows a one-shot "from another computer" hint so the user knows why
+    # they're being asked to sign in again.
+    auth = ensure_healthy(profile_dir=PROFILE_DIR, session=session)
+    foreign_healed = auth.healed and auth.health is not AuthHealth.OK
 
     in_profile = profile_has_auth_cookie(PROFILE_DIR)
     in_setting = bool(
@@ -317,6 +338,7 @@ def auth_status_partial(
         {
             "state": state,
             "snagged_now": snagged_now,
+            "foreign_healed": foreign_healed,
         },
     )
 
@@ -444,9 +466,10 @@ def sync_portal_download() -> RedirectResponse:
 def sync_run_ebay(session: Session = Depends(get_session)) -> RedirectResponse:
     try:
         run_ebay_outbound(session, LoggingMockEbayClient())
-    except Exception as e:
+    except Exception:
         logger.exception("eBay outbound failed")
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
+        # Don't leak internal exception detail to the client; it's in the logs.
+        raise HTTPException(status_code=500, detail="eBay sync failed — see server logs.")
     return RedirectResponse(url="/admin/sync/", status_code=303)
 
 

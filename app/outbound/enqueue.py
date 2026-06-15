@@ -4,10 +4,11 @@ workers' queues.
 Channel selection rules:
 
 - ``ebay``: only when ``product.is_online_listable`` (skips supplies).
-- ``shopify_pos``: NOT included. Shopify is a payment terminal only —
-  it does not manage inventory. Nothing is pushed to Shopify.
-- ``tcgplayer``: only when the change did NOT originate from TCGPlayer
-  (anti-echo rule).
+- ``tcgplayer``: only when ``product.is_online_listable`` (skips supplies).
+- ``shopify_pos``: for **every** product — the register sells singles,
+  sealed, AND supplies, so Shopify needs the full inventory.
+- In all cases the originating channel is excluded (anti-echo: never push a
+  change back to the channel it came from).
 """
 
 from __future__ import annotations
@@ -33,14 +34,18 @@ def _new_push_id() -> str:
 def _channels_for(product: Product, *, exclude: str | None = None) -> list[str]:
     """Return the channels that should receive an outbound notification.
 
-    Shopify is intentionally excluded — it is a payment processor, not
-    an inventory system. Only eBay and TCGPlayer receive pushes.
+    eBay and TCGPlayer only carry online-listable products (supplies aren't
+    listed there). Shopify POS carries everything — it's the register, so it
+    needs inventory for singles, sealed, and supplies alike. The originating
+    channel is always excluded (anti-echo).
     """
     channels: list[str] = []
     if product.is_online_listable and exclude != Channel.EBAY.value:
         channels.append(Channel.EBAY.value)
     if product.is_online_listable and exclude != Channel.TCGPLAYER.value:
         channels.append(Channel.TCGPLAYER.value)
+    if exclude != Channel.SHOPIFY_POS.value:
+        channels.append(Channel.SHOPIFY_POS.value)
     return channels
 
 

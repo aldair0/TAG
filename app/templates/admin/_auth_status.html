@@ -23,6 +23,9 @@
     {% elif state == 'snagging' %}
       <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
       <span class="font-semibold">Capturing session…</span>
+    {% elif foreign_healed %}
+      <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+      <span class="font-semibold">Session was from another computer — please sign in</span>
     {% else %}
       <span class="w-2 h-2 rounded-full bg-rose-500"></span>
       <span class="font-semibold">Not connected</span>

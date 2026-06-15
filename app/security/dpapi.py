@@ -61,6 +61,45 @@ def encrypt_secret(plaintext: str) -> str:
     return PREFIX + base64.b64encode(cipher).decode("ascii")
 
 
+def can_decrypt_envelope(stored: str | None) -> bool:
+    """True iff ``stored`` is usable on *this* machine+user.
+
+    Plaintext (no ``dpapi:v1:`` prefix) round-trips anywhere, so it
+    counts as decryptable. A ``dpapi:v1:`` envelope counts only if
+    ``CryptUnprotectData`` succeeds here — the whole point of the
+    machine-move detection. ``None``/empty are not decryptable (nothing
+    to decrypt). Never raises.
+    """
+    if not stored:
+        return False
+    if not is_encrypted_blob(stored):
+        return True
+    try:
+        decrypt_secret(stored)
+        return True
+    except (DpapiDecryptError, DpapiUnavailableError):
+        return False
+
+
+def can_unprotect(raw: bytes) -> bool:
+    """True iff ``raw`` (a bare DPAPI ciphertext blob, no ``dpapi:v1:``
+    envelope) decrypts on the current machine+user.
+
+    Used to probe Chrome's ``Local State`` ``os_crypt.encrypted_key``,
+    which is a DPAPI blob — not our envelope format — so we can tell a
+    foreign (copied-from-another-machine) Chrome profile from a native
+    one without launching the browser. Returns False off-Windows or on
+    any failure; never raises.
+    """
+    if sys.platform != "win32" or not raw:
+        return False
+    try:
+        _crypt_unprotect(raw)
+        return True
+    except OSError:
+        return False
+
+
 def decrypt_secret(stored: str | None) -> str | None:
     """Decrypt a ``dpapi:v1:`` blob; pass plaintext (or None) through
     unchanged. Raises ``DpapiDecryptError`` if the blob has the prefix
